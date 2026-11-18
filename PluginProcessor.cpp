@@ -10,11 +10,19 @@ MiSinteProcessor::MiSinteProcessor()
       apvts (*this, nullptr, "STATE", createLayout())
 {
     VoiceParams vp;
-    vp.wave    = apvts.getRawParameterValue ("wave");
-    vp.attack  = apvts.getRawParameterValue ("attack");
-    vp.decay   = apvts.getRawParameterValue ("decay");
-    vp.sustain = apvts.getRawParameterValue ("sustain");
-    vp.release = apvts.getRawParameterValue ("release");
+    vp.wave       = apvts.getRawParameterValue ("wave");
+    vp.attack     = apvts.getRawParameterValue ("attack");
+    vp.decay      = apvts.getRawParameterValue ("decay");
+    vp.sustain    = apvts.getRawParameterValue ("sustain");
+    vp.release    = apvts.getRawParameterValue ("release");
+    vp.filterType = apvts.getRawParameterValue ("ftype");
+    vp.cutoff     = apvts.getRawParameterValue ("cutoff");
+    vp.resonance  = apvts.getRawParameterValue ("resonance");
+    vp.envAmount  = apvts.getRawParameterValue ("envamt");
+    vp.fAttack    = apvts.getRawParameterValue ("fattack");
+    vp.fDecay     = apvts.getRawParameterValue ("fdecay");
+    vp.fSustain   = apvts.getRawParameterValue ("fsustain");
+    vp.fRelease   = apvts.getRawParameterValue ("frelease");
 
     for (int i = 0; i < kNumVoices; ++i)
         synth.addVoice (new SynthVoice (vp));
@@ -28,6 +36,12 @@ MiSinteProcessor::createLayout()
     using namespace juce;
     AudioProcessorValueTreeState::ParameterLayout layout;
 
+    auto timeRange = [] (float maxSeconds)
+    {
+        return NormalisableRange<float> (0.001f, maxSeconds, 0.0f, 0.3f);
+    };
+
+    // --- Oscilador y amplitud ---
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "volume", 1 }, "Volumen",
         NormalisableRange<float> (0.0f, 1.0f), 0.7f));
@@ -37,20 +51,48 @@ MiSinteProcessor::createLayout()
         StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada" }, 2));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "attack", 1 }, "Ataque",
-        NormalisableRange<float> (0.001f, 10.0f, 0.0f, 0.3f), 0.01f));
+        ParameterID { "attack", 1 }, "Ataque", timeRange (10.0f), 0.01f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "decay", 1 }, "Decay",
-        NormalisableRange<float> (0.001f, 10.0f, 0.0f, 0.3f), 0.3f));
+        ParameterID { "decay", 1 }, "Decay", timeRange (10.0f), 0.3f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "sustain", 1 }, "Sustain",
         NormalisableRange<float> (0.0f, 1.0f), 0.7f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "release", 1 }, "Release",
-        NormalisableRange<float> (0.001f, 15.0f, 0.0f, 0.3f), 0.3f));
+        ParameterID { "release", 1 }, "Release", timeRange (15.0f), 0.3f));
+
+    // --- Filtro ---
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "ftype", 1 }, "Tipo de filtro",
+        StringArray { "Paso bajo", "Paso alto", "Paso banda", "Notch" }, 0));
+
+    NormalisableRange<float> cutoffRange (20.0f, 20000.0f, 0.0f);
+    cutoffRange.setSkewForCentre (1000.0f);
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "cutoff", 1 }, "Cutoff", cutoffRange, 20000.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "resonance", 1 }, "Resonancia",
+        NormalisableRange<float> (0.0f, 1.0f), 0.1f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "envamt", 1 }, "Cantidad env",
+        NormalisableRange<float> (-1.0f, 1.0f), 0.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "fattack", 1 }, "Filtro ataque", timeRange (10.0f), 0.01f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "fdecay", 1 }, "Filtro decay", timeRange (10.0f), 0.3f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "fsustain", 1 }, "Filtro sustain",
+        NormalisableRange<float> (0.0f, 1.0f), 1.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "frelease", 1 }, "Filtro release", timeRange (15.0f), 0.3f));
 
     return layout;
 }

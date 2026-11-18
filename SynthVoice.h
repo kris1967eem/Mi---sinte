@@ -11,6 +11,15 @@ struct VoiceParams
     std::atomic<float>* decay   = nullptr;
     std::atomic<float>* sustain = nullptr;
     std::atomic<float>* release = nullptr;
+
+    std::atomic<float>* filterType = nullptr;
+    std::atomic<float>* cutoff     = nullptr;
+    std::atomic<float>* resonance  = nullptr;
+    std::atomic<float>* envAmount  = nullptr;
+    std::atomic<float>* fAttack    = nullptr;
+    std::atomic<float>* fDecay     = nullptr;
+    std::atomic<float>* fSustain   = nullptr;
+    std::atomic<float>* fRelease   = nullptr;
 };
 
 struct SynthSound : public juce::SynthesiserSound
@@ -33,7 +42,10 @@ public:
     {
         juce::SynthesiserVoice::setCurrentPlaybackSampleRate (newRate);
         if (newRate > 0.0)
+        {
             adsr.setSampleRate (newRate);
+            filterAdsr.setSampleRate (newRate);
+        }
     }
 
     void startNote (int midiNote, float velocity,
@@ -43,8 +55,12 @@ public:
         bendSemitones = wheelToSemitones (pitchWheelPos);
         level = velocity * 0.2f;
         phase = 0.0;
-        updateEnvelope();
+        s1 = 0.0;
+        s2 = 0.0;
+        coefCounter = 0;
+        updateEnvelopes();
         adsr.noteOn();
+        filterAdsr.noteOn();
     }
 
     void stopNote (float, bool allowTailOff) override
@@ -52,10 +68,12 @@ public:
         if (allowTailOff)
         {
             adsr.noteOff();
+            filterAdsr.noteOff();
         }
         else
         {
             adsr.reset();
+            filterAdsr.reset();
             clearCurrentNote();
         }
     }
@@ -73,22 +91,44 @@ public:
         if (! isVoiceActive())
             return;
 
-        updateEnvelope();
+        updateEnvelopes();
 
+        const double sr = getSampleRate();
         const int waveType = (int) params.wave->load();
+        const int filterType = (int) params.filterType->load();
+        const double cutoff = (double) params.cutoff->load();
+        const double amount = (double) params.envAmount->load();
+        const double q = 0.5 * std::pow (40.0, (double) params.resonance->load());
+        k = 1.0 / q;
+
         const double freq = noteHz * std::pow (2.0, bendSemitones / 12.0);
-        const double dt = freq / getSampleRate();
+        const double dt = freq / sr;
 
         for (int i = 0; i < numSamples; ++i)
         {
             const float env = adsr.getNextSample();
+            const float fenv = filterAdsr.getNextSample();
+
             if (! adsr.isActive())
             {
                 clearCurrentNote();
                 break;
             }
 
-            const float s = oscillator (waveType, (float) phase, (float) dt) * env * level;
+            // Los coeficientes del filtro se recalculan cada 16 muestras (ahorra CPU)
+            if (coefCounter-- <= 0)
+            {
+                coefCounter = 15;
+                const double mod = std::pow (2.0, amount * 7.0 * (double) fenv);
+                const double fc = juce::jlimit (20.0, 0.45 * sr, cutoff * mod);
+                g = std::tan (juce::MathConstants<double>::pi * fc / sr);
+                h = 1.0 / (1.0 + g * (g + k));
+            }
+
+            const float raw = oscillator (waveType, (float) phase, (float) dt);
+            const float filtered = (float) processFilter ((double) raw, filterType);
+            const float s = filtered * env * level;
+
             for (int c = 0; c < out.getNumChannels(); ++c)
                 out.addSample (c, startSample + i, s);
 
@@ -103,6 +143,25 @@ private:
     {
         // Rango del pitch bend: +/- 2 semitonos
         return ((float) wheel - 8192.0f) / 8192.0f * 2.0f;
+    }
+
+    // Filtro de variable de estado (TPT). Salidas: 0 paso bajo, 1 paso alto,
+    // 2 paso banda, 3 notch
+    double processFilter (double x, int type)
+    {
+        const double hp = (x - (k + g) * s1 - s2) * h;
+        const double bp = g * hp + s1;
+        const double lp = g * bp + s2;
+        s1 = g * hp + bp;
+        s2 = g * bp + lp;
+
+        switch (type)
+        {
+            case 0:  return lp;
+            case 1:  return hp;
+            case 2:  return k * bp;
+            default: return hp + lp;
+        }
     }
 
     // Correccion PolyBLEP: reduce el aliasing en sierra y cuadrada
@@ -147,18 +206,30 @@ private:
         }
     }
 
-    void updateEnvelope()
+    void updateEnvelopes()
     {
         adsr.setParameters ({ params.attack->load(),
                               params.decay->load(),
                               params.sustain->load(),
                               params.release->load() });
+
+        filterAdsr.setParameters ({ params.fAttack->load(),
+                                    params.fDecay->load(),
+                                    params.fSustain->load(),
+                                    params.fRelease->load() });
     }
 
     VoiceParams params;
     juce::ADSR adsr;
+    juce::ADSR filterAdsr;
+
     double phase = 0.0;
     double noteHz = 440.0;
     float bendSemitones = 0.0f;
     float level = 0.0f;
+
+    // Estado del filtro
+    double s1 = 0.0, s2 = 0.0;
+    double g = 0.0, h = 1.0, k = 1.0;
+    int coefCounter = 0;
 };
