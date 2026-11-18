@@ -35,7 +35,7 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     filterAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "ftype", filterBox);
 
-    setupKnob (cutoff,    "Cutoff",     "cutoff", " Hz");
+    setupKnob (cutoff,    "Cutoff",     "cutoff", " Hz", 0);
     setupKnob (resonance, "Resonancia", "resonance");
     setupKnob (envAmt,    "Env cant.",  "envamt");
     setupKnob (fAttack,   "F Ataque",   "fattack",  " s");
@@ -43,16 +43,35 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     setupKnob (fSustain,  "F Sustain",  "fsustain");
     setupKnob (fRelease,  "F Release",  "frelease", " s");
 
-    setSize (2 * kMargin + 7 * kKnobW, 400);
+    // --- Unison, drift y glide ---
+    unisonModeLabel.setText ("Modo", juce::dontSendNotification);
+    unisonModeLabel.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (unisonModeLabel);
+
+    unisonModeBox.addItemList (juce::StringArray { "Normal", "Octavas", "Quinta", "Mayor",
+                                                   "Menor", "Mayor 7", "Menor 7" }, 1);
+    addAndMakeVisible (unisonModeBox);
+    unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        proc.apvts, "umode", unisonModeBox);
+
+    setupKnob (unisonVoices, "Voces",   "unison", "", 0);
+    setupKnob (unisonDetune, "Detune",  "udetune", " ct", 0);
+    setupKnob (unisonStereo, "Estereo", "ustereo", "", 2);
+    setupKnob (drift,        "Drift",   "drift", "", 2);
+    setupKnob (glide,        "Glide",   "glide", " s", 2);
+
+    setSize (2 * kMargin + 7 * kKnobW, 580);
 }
 
-void MiSinteEditor::setupKnob (Knob& k, const juce::String& text,
-                               const juce::String& paramID, const juce::String& suffix)
+void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
+                               const juce::String& suffix, int decimals)
 {
     k.slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 18);
     if (suffix.isNotEmpty())
         k.slider.setTextValueSuffix (suffix);
+    if (decimals >= 0)
+        k.slider.setNumDecimalPlacesToDisplay (decimals);
     addAndMakeVisible (k.slider);
 
     k.label.setText (text, juce::dontSendNotification);
@@ -82,9 +101,11 @@ void MiSinteEditor::paint (juce::Graphics& g)
     g.setFont (13.0f);
     g.drawText ("OSCILADOR Y AMPLITUD", kMargin, 8, 250, 18, juce::Justification::left);
     g.drawText ("FILTRO", kMargin, 205, 250, 18, juce::Justification::left);
+    g.drawText ("UNISON, DRIFT Y GLIDE", kMargin, 402, 250, 18, juce::Justification::left);
 
     g.setColour (juce::Colours::white.withAlpha (0.15f));
     g.drawHorizontalLine (200, (float) kMargin, (float) (getWidth() - kMargin));
+    g.drawHorizontalLine (397, (float) kMargin, (float) (getWidth() - kMargin));
 }
 
 void MiSinteEditor::resized()
@@ -96,4 +117,8 @@ void MiSinteEditor::resized()
     filterLabel.setBounds (kMargin + 70, 205, 50, 24);
     filterBox.setBounds (kMargin + 125, 205, 130, 24);
     layoutRow ({ &cutoff, &resonance, &envAmt, &fAttack, &fDecay, &fSustain, &fRelease }, 237);
+
+    unisonModeLabel.setBounds (kMargin + 160, 402, 50, 24);
+    unisonModeBox.setBounds (kMargin + 215, 402, 130, 24);
+    layoutRow ({ &unisonVoices, &unisonDetune, &unisonStereo, &drift, &glide }, 434);
 }

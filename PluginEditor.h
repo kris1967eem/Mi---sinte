@@ -16,8 +16,8 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attach;
     };
 
-    void setupKnob (Knob& k, const juce::String& text,
-                    const juce::String& paramID, const juce::String& suffix = {});
+    void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
+                    const juce::String& suffix = {}, int decimals = -1);
     void layoutRow (std::initializer_list<Knob*> knobs, int labelY);
 
     MiSinteProcessor& proc;
@@ -33,4 +33,10 @@ private:
     juce::ComboBox filterBox;
     juce::Label filterLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> filterAttach;
+
+    // Unison, drift y glide
+    Knob unisonVoices, unisonDetune, unisonStereo, drift, glide;
+    juce::ComboBox unisonModeBox;
+    juce::Label unisonModeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> unisonModeAttach;
 };

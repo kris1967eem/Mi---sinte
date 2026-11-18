@@ -23,6 +23,13 @@ MiSinteProcessor::MiSinteProcessor()
     vp.fDecay     = apvts.getRawParameterValue ("fdecay");
     vp.fSustain   = apvts.getRawParameterValue ("fsustain");
     vp.fRelease   = apvts.getRawParameterValue ("frelease");
+    vp.unison     = apvts.getRawParameterValue ("unison");
+    vp.unisonMode = apvts.getRawParameterValue ("umode");
+    vp.detune     = apvts.getRawParameterValue ("udetune");
+    vp.stereo     = apvts.getRawParameterValue ("ustereo");
+    vp.drift      = apvts.getRawParameterValue ("drift");
+    vp.glide      = apvts.getRawParameterValue ("glide");
+    vp.lastNote   = &lastNote;
 
     for (int i = 0; i < kNumVoices; ++i)
         synth.addVoice (new SynthVoice (vp));
@@ -93,6 +100,33 @@ MiSinteProcessor::createLayout()
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "frelease", 1 }, "Filtro release", timeRange (15.0f), 0.3f));
+
+    // --- Unison, drift y glide ---
+    layout.add (std::make_unique<AudioParameterInt> (
+        ParameterID { "unison", 1 }, "Unison voces", 1, 8, 1));
+
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "umode", 1 }, "Unison modo",
+        StringArray { "Normal", "Octavas", "Quinta", "Mayor", "Menor", "Mayor 7", "Menor 7" }, 0));
+
+    // Detune de 0 a 1200 cents (una octava). La primera mitad del recorrido
+    // del knob cubre de 0 a 100 cents para tener control fino.
+    NormalisableRange<float> detuneRange (0.0f, 1200.0f, 0.0f);
+    detuneRange.setSkewForCentre (100.0f);
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "udetune", 1 }, "Unison detune", detuneRange, 25.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "ustereo", 1 }, "Unison estereo",
+        NormalisableRange<float> (0.0f, 1.0f), 0.7f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "drift", 1 }, "Drift",
+        NormalisableRange<float> (0.0f, 1.0f), 0.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "glide", 1 }, "Glide",
+        NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
 
     return layout;
 }

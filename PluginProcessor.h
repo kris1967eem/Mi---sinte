@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <atomic>
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -36,6 +37,7 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     juce::Synthesiser synth;
     float lastGain = 0.7f;
+    std::atomic<float> lastNote { -1.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };
