@@ -33,7 +33,7 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Ondas personalizadas de los LFO (un ciclo cargado desde un archivo de audio)
+    // User waves de los LFO (un ciclo cargado desde un archivo de audio)
     bool loadLfoWave (int index, const juce::File& file);
     juce::String getLfoWaveName (int index) const;
 
@@ -46,9 +46,9 @@ private:
     std::atomic<float> lastNote { -1.0f };
     std::atomic<float> hostBpm { 120.0f };
 
-    std::array<std::atomic<float>, kLfoTableSize> lfoTables[3];
-    juce::String lfoWaveName[3];
-    bool lfoWaveLoaded[3] { false, false, false };
+    std::array<std::atomic<float>, kLfoTableSize> lfoTables[kNumLfos];
+    juce::String lfoWaveName[kNumLfos];
+    bool lfoWaveLoaded[kNumLfos] {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };

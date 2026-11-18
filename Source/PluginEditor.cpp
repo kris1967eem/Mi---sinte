@@ -3,106 +3,111 @@
 namespace
 {
     // Tamano de diseno (100%). Todo se escala a partir de el.
-    constexpr int kKnobW = 80;
-    constexpr int kMargin = 20;
     constexpr int kDesignW = 1000;
-    constexpr int kDesignH = 420;
-    constexpr int kTop = 36;            // altura de la barra de pestanas
-    constexpr int kSectionH = 180;      // altura de cada fila de la pestana OSC
-    constexpr int kLfoBlockH = 126;     // altura de cada LFO
+    constexpr int kDesignH = 510;
+    constexpr int kTop = 36;             // altura de la barra de pestanas
+    constexpr int kKnobW = 80;
+    constexpr int kDialH = 96;
 
-    // Posiciones (x) de los grupos de la pestana OSC
-    constexpr int kUnisonX = 440;
-    constexpr int kVolumeX = 900;
-    constexpr int kEnvFilterX = 280;
-    constexpr int kEnvAmpX = 620;
+    // Pestana OSC
+    constexpr int kOscH = 304;           // altura del panel del oscilador
+    constexpr int kRow2Y = kTop + 312;   // fila de filtro y envolventes
+    constexpr int kRow2H = 154;
 
-    // Tamano inicial: 85% del diseno, para que quepa en pantallas pequenas
-    constexpr float kStartScale = 0.85f;
+    // Pestana LFOs
+    constexpr int kLfoBlockH = 236;
+
+    constexpr float kStartScale = 0.8f;
+
+    // Colores de los knobs (inspirados en los aros de colores de Dune 3)
+    const juce::Colour kAmber  (0xffe9b44c);
+    const juce::Colour kOrange (0xfff08a5d);
+    const juce::Colour kCyan   (0xff3fd0d4);
+    const juce::Colour kGreen  (0xff8be04e);
+    const juce::Colour kPink   (0xffe0679f);
 }
 
 MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
-    : AudioProcessorEditor (&p), proc (p)
+    : AudioProcessorEditor (&p), proc (p), waveDisplay (p.apvts)
 {
-    // --- Barra de pestanas ---
-    pageSoundBtn.setButtonText ("OSC");
-    pageModBtn.setButtonText ("LFOs");
-    for (auto* b : { &pageSoundBtn, &pageModBtn })
+    waveRaw = proc.apvts.getRawParameterValue ("wave");
+    syncRaw = proc.apvts.getRawParameterValue ("oscsync");
+    modeRaw = proc.apvts.getRawParameterValue ("umode");
+
+    // --- Pestanas ---
+    pageOscBtn.setButtonText ("OSC");
+    pageLfoBtn.setButtonText ("LFOs");
+    for (auto* b : { &pageOscBtn, &pageLfoBtn })
     {
         b->setClickingTogglesState (true);
         b->setRadioGroupId (1001);
         b->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff3a6ea5));
         addAndMakeVisible (*b);
     }
-    pageSoundBtn.setToggleState (true, juce::dontSendNotification);
-    pageSoundBtn.onClick = [this] { showPage (0); };
-    pageModBtn.onClick = [this] { showPage (1); };
+    pageOscBtn.setToggleState (true, juce::dontSendNotification);
+    pageOscBtn.onClick = [this] { showPage (0); };
+    pageLfoBtn.onClick = [this] { showPage (1); };
 
-    // --- Oscilador: onda y afinacion ---
-    waveLabel.setText ("Onda", juce::dontSendNotification);
-    waveLabel.setJustificationType (juce::Justification::centredRight);
-    addToPage (0, waveLabel);
+    // --- Oscilador ---
+    addToPage (0, waveDisplay);
 
-    waveBox.addItemList (juce::StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada" }, 1);
-    addToPage (0, waveBox);
-    waveAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        proc.apvts, "wave", waveBox);
+    syncBtn.setButtonText ("SYNC");
+    resetBtn.setButtonText ("RESET");
+    for (auto* b : { &syncBtn, &resetBtn })
+    {
+        b->setClickingTogglesState (true);
+        b->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe9843a));
+        b->setColour (juce::TextButton::textColourOnId, juce::Colour (0xff1a1208));
+        addToPage (0, *b);
+    }
+    syncA  = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "oscsync", syncBtn);
+    resetA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "oscreset", resetBtn);
 
-    setupKnob (octave,     "Octava", "octave", "", 0);
-    setupKnob (semi,       "Semi",   "semi", "", 0);
-    setupKnob (fine,       "Fine",   "fine", " ct", 0);
-    setupKnob (pulseWidth, "PW",     "pw", "", 2);
-    setupKnob (glide,      "Glide",  "glide", " s", 2);
+    setupKnob (pulseWidth, "PW",    "pw",       "", 2, kOrange);
+    setupKnob (syncFreq,   "FREQ",  "syncfreq", " st", 1, kOrange);
 
-    // --- Oscilador: unison ---
-    unisonModeLabel.setText ("Modo", juce::dontSendNotification);
-    unisonModeLabel.setJustificationType (juce::Justification::centredRight);
-    addToPage (0, unisonModeLabel);
+    setupKnob (octave, "OCT",   "octave", "", 0, kAmber);
+    setupKnob (semi,   "SEMI",  "semi",   "", 0, kAmber);
+    setupKnob (fine,   "FINE",  "fine",   " ct", 0, kAmber);
+    setupKnob (glide,  "GLIDE", "glide",  " s", 2, kAmber);
+    setupKnob (drift,  "DRIFT", "drift",  "", 2, kAmber);
+    setupKnob (volume, "VOLUME", "volume", "", 2, kGreen);
 
-    unisonModeBox.addItemList (juce::StringArray { "Normal", "Octavas", "Quinta", "Mayor",
-                                                   "Menor", "Mayor 7", "Menor 7",
-                                                   "Sub", "Swarm" }, 1);
+    // --- Unison ---
+    unisonModeBox.addItemList (juce::StringArray { "NORMAL", "OCTAVES", "FIFTH", "MAJOR",
+                                                   "MINOR", "MAJOR 7", "MINOR 7",
+                                                   "SUB", "HARMONIC" }, 1);
     addToPage (0, unisonModeBox);
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);
-    // El knob Rate solo aparece cuando el modo de unison es Swarm
-    unisonModeBox.onChange = [this] { updateSwarmKnob(); };
 
-    setupKnob (unisonVoices, "Voces",   "unison", "", 0);
-    setupKnob (unisonDetune, "Detune",  "udetune", " ct", 0);
-    setupKnob (unisonStereo, "Spread",  "ustereo", "", 2);
-    setupKnob (drift,        "Drift",   "drift", "", 2);
-    setupKnob (swarmRate,    "Rate",    "swarmrate", " Hz", 2);
+    setupKnob (unisonVoices, "VOICES", "unison",  "", 0, kCyan);
+    setupKnob (unisonDetune, "DETUNE", "udetune", " ct", 0, kCyan);
+    setupKnob (unisonSpread, "SPREAD", "ustereo", "", 2, kCyan);
+    setupKnob (harmTilt,     "TILT",   "uharm",   "", 2, kCyan);
 
-    setupKnob (volume, "Volumen", "volume");
-
-    // --- Filtro ---
-    filterLabel.setText ("Tipo", juce::dontSendNotification);
-    filterLabel.setJustificationType (juce::Justification::centredRight);
-    addToPage (0, filterLabel);
-
-    filterBox.addItemList (juce::StringArray { "Paso bajo", "Paso alto", "Paso banda", "Notch" }, 1);
+    // --- Filtro y su envolvente ---
+    filterBox.addItemList (juce::StringArray { "LOWPASS", "HIGHPASS", "BANDPASS", "NOTCH" }, 1);
     addToPage (0, filterBox);
     filterAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "ftype", filterBox);
 
-    setupKnob (cutoff,    "Cutoff",     "cutoff", " Hz", 0);
-    setupKnob (resonance, "Resonancia", "resonance");
-    setupKnob (envAmt,    "Env cant.",  "envamt");
+    setupKnob (cutoff,   "CUTOFF",  "cutoff",    " Hz", 0, kOrange);
+    setupKnob (reso,     "RESO",    "resonance", "", 2, kOrange);
+    setupKnob (envAmt,   "ENV AMT", "envamt",    "", 2, kOrange);
+    setupKnob (fAttack,  "ATTACK",  "fattack",   " s", 2, kPink);
+    setupKnob (fDecay,   "DECAY",   "fdecay",    " s", 2, kPink);
+    setupKnob (fSustain, "SUSTAIN", "fsustain",  "", 2, kPink);
+    setupKnob (fRelease, "RELEASE", "frelease",  " s", 2, kPink);
 
-    // --- Envolvente del filtro y de amplitud ---
-    setupKnob (fAttack,   "Ataque",  "fattack",  " s");
-    setupKnob (fDecay,    "Decay",   "fdecay",   " s");
-    setupKnob (fSustain,  "Sustain", "fsustain");
-    setupKnob (fRelease,  "Release", "frelease", " s");
-
-    setupKnob (attack,    "Ataque",  "attack",  " s");
-    setupKnob (decay,     "Decay",   "decay",   " s");
-    setupKnob (sustain,   "Sustain", "sustain");
-    setupKnob (release,   "Release", "release", " s");
+    // --- Envolvente de amplitud ---
+    setupKnob (attack,  "ATTACK",  "attack",  " s", 2, kGreen);
+    setupKnob (decay,   "DECAY",   "decay",   " s", 2, kGreen);
+    setupKnob (sustain, "SUSTAIN", "sustain", "", 2, kGreen);
+    setupKnob (release, "RELEASE", "release", " s", 2, kGreen);
 
     // --- LFOs ---
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kNumLfos; ++i)
         setupLfo (lfoUI[i], i);
 
     showPage (0);
@@ -115,6 +120,43 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     getConstrainer()->setFixedAspectRatio ((double) kDesignW / (double) kDesignH);
 
     setSize ((int) (kDesignW * kStartScale), (int) (kDesignH * kStartScale));
+
+    timerCallback();        // estado inicial de los knobs atenuados
+    startTimerHz (15);
+}
+
+// ------------------------------------------------------------------------------------
+
+void MiSinteEditor::timerCallback()
+{
+    const int w = (int) waveRaw->load();
+    const bool sy = syncRaw->load() > 0.5f;
+    const int m = (int) modeRaw->load();
+
+    if (! cachedValid || w != cachedWave || sy != cachedSync || m != cachedMode)
+    {
+        cachedValid = true;
+        cachedWave = w;
+        cachedSync = sy;
+        cachedMode = m;
+        applyEnabledStates();
+        repaint();
+    }
+}
+
+void MiSinteEditor::setKnobEnabled (Knob& k, bool enabled)
+{
+    k.slider.setEnabled (enabled);
+    k.slider.setAlpha (enabled ? 1.0f : 0.4f);
+    k.label.setAlpha (enabled ? 1.0f : 0.4f);
+}
+
+// Como en Dune 3: PW solo aplica a SQUARE, FREQ solo con SYNC y TILT solo en HARMONIC
+void MiSinteEditor::applyEnabledStates()
+{
+    setKnobEnabled (pulseWidth, cachedWave == 3);
+    setKnobEnabled (syncFreq,   cachedSync);
+    setKnobEnabled (harmTilt,   cachedMode == 8);
 }
 
 void MiSinteEditor::addToPage (int page, juce::Component& c)
@@ -130,25 +172,21 @@ void MiSinteEditor::showPage (int page)
         for (auto* c : pages[i])
             c->setVisible (i == page);
 
-    pageSoundBtn.setToggleState (page == 0, juce::dontSendNotification);
-    pageModBtn.setToggleState (page == 1, juce::dontSendNotification);
-    updateSwarmKnob();
+    pageOscBtn.setToggleState (page == 0, juce::dontSendNotification);
+    pageLfoBtn.setToggleState (page == 1, juce::dontSendNotification);
     repaint();
 }
 
-void MiSinteEditor::updateSwarmKnob()
-{
-    // Swarm es el elemento 9 de la lista de modos (los ids empiezan en 1)
-    const bool show = (currentPage == 0) && (unisonModeBox.getSelectedId() == 9);
-    swarmRate.slider.setVisible (show);
-    swarmRate.label.setVisible (show);
-}
-
 void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
-                               const juce::String& suffix, int decimals, int page)
+                               const juce::String& suffix, int decimals,
+                               juce::Colour accent, int page)
 {
     k.slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 18);
+    k.slider.setColour (juce::Slider::rotarySliderFillColourId, accent);
+    k.slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff3a3a46));
+    k.slider.setColour (juce::Slider::thumbColourId, accent.brighter (0.4f));
+    k.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     if (suffix.isNotEmpty())
         k.slider.setTextValueSuffix (suffix);
     if (decimals >= 0)
@@ -157,6 +195,7 @@ void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::St
 
     k.label.setText (text, juce::dontSendNotification);
     k.label.setJustificationType (juce::Justification::centred);
+    k.label.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.75f));
     addToPage (page, k.label);
 
     k.attach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
@@ -170,20 +209,23 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     u.title.setText ("LFO " + n, juce::dontSendNotification);
     addToPage (1, u.title);
 
-    u.waveL.setText ("Onda", juce::dontSendNotification);
-    u.destL.setText ("Destino", juce::dontSendNotification);
-    u.syncL.setText ("Sync", juce::dontSendNotification);
+    u.waveL.setText ("WAVE", juce::dontSendNotification);
+    u.destL.setText ("DESTINATION", juce::dontSendNotification);
+    u.syncL.setText ("SYNC", juce::dontSendNotification);
     for (auto* l : { &u.waveL, &u.destL, &u.syncL })
     {
         l->setJustificationType (juce::Justification::centredRight);
+        l->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.75f));
         addToPage (1, *l);
     }
 
-    u.wave.addItemList (juce::StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada",
-                                            "Aleatorio", "Personal" }, 1);
-    u.dest.addItemList (juce::StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen",
-                                            "Detune", "PW", "Rate" }, 1);
-    u.sync.addItemList (juce::StringArray { "Libre", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4",
+    u.wave.addItemList (juce::StringArray { "SINE", "TRIANGLE", "SAW", "SQUARE",
+                                            "RANDOM", "USER WAVE" }, 1);
+    u.dest.addItemList (juce::StringArray { "NONE", "PITCH", "CUTOFF", "RESO", "VOLUME",
+                                            "DETUNE", "PW", "SYNC FREQ",
+                                            "LFO 1 RATE", "LFO 2 RATE",
+                                            "LFO 3 RATE", "LFO 4 RATE" }, 1);
+    u.sync.addItemList (juce::StringArray { "FREE", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4",
                                             "1/8", "1/16", "1/32",
                                             "8/1T", "4/1T", "2/1T", "1/1T", "1/2T", "1/4T",
                                             "1/8T", "1/16T", "1/32T" }, 1);
@@ -191,17 +233,18 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     addToPage (1, u.dest);
     addToPage (1, u.sync);
 
-    u.retrig.setButtonText ("Retrig");
+    u.retrig.setButtonText ("RETRIG");
     addToPage (1, u.retrig);
 
-    u.loadBtn.setButtonText ("Cargar...");
+    u.loadBtn.setButtonText ("LOAD...");
     u.loadBtn.onClick = [this, index] { chooseLfoWave (index); };
     addToPage (1, u.loadBtn);
 
     const auto loaded = proc.getLfoWaveName (index);
-    u.waveName.setText (loaded.isNotEmpty() ? "Personal: " + loaded : "Personal: sin cargar",
+    u.waveName.setText (loaded.isNotEmpty() ? "USER WAVE: " + loaded : "USER WAVE: EMPTY",
                         juce::dontSendNotification);
     u.waveName.setJustificationType (juce::Justification::left);
+    u.waveName.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.55f));
     addToPage (1, u.waveName);
 
     u.waveA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
@@ -213,16 +256,16 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     u.retrigA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         proc.apvts, "lfo" + n + "retrig", u.retrig);
 
-    setupKnob (u.rate,  "Rate",     "lfo" + n + "rate",  " Hz", 2, 1);
-    setupKnob (u.amt,   "Cantidad", "lfo" + n + "amt",   "", 2, 1);
-    setupKnob (u.fade,  "Fade in",  "lfo" + n + "fade",  " s", 2, 1);
-    setupKnob (u.phase, "Fase",     "lfo" + n + "phase", " deg", 0, 1);
+    setupKnob (u.rate,  "RATE",    "lfo" + n + "rate",  " Hz", 2, kCyan, 1);
+    setupKnob (u.amt,   "AMOUNT",  "lfo" + n + "amt",   "", 2, kCyan, 1);
+    setupKnob (u.fade,  "FADE IN", "lfo" + n + "fade",  " s", 2, kCyan, 1);
+    setupKnob (u.phase, "PHASE",   "lfo" + n + "phase", "", 0, kCyan, 1);
 }
 
 void MiSinteEditor::chooseLfoWave (int index)
 {
     chooser = std::make_unique<juce::FileChooser> (
-        "Elige una forma de onda de un ciclo (WAV, AIFF o FLAC)",
+        "Choose a single-cycle waveform (WAV, AIFF or FLAC)",
         juce::File(), "*.wav;*.aif;*.aiff;*.flac");
 
     juce::Component::SafePointer<MiSinteEditor> safe (this);
@@ -241,112 +284,188 @@ void MiSinteEditor::chooseLfoWave (int index)
         auto& ui = safe->lfoUI[index];
         if (safe->proc.loadLfoWave (index, file))
         {
-            ui.waveName.setText ("Personal: " + safe->proc.getLfoWaveName (index),
+            ui.waveName.setText ("USER WAVE: " + safe->proc.getLfoWaveName (index),
                                  juce::dontSendNotification);
-            ui.wave.setSelectedId (6, juce::sendNotificationSync);   // elige "Personal"
+            ui.wave.setSelectedId (6, juce::sendNotificationSync);   // selecciona USER WAVE
         }
         else
         {
-            ui.waveName.setText ("No se pudo cargar el archivo", juce::dontSendNotification);
+            ui.waveName.setText ("COULD NOT LOAD FILE", juce::dontSendNotification);
         }
     });
 }
 
 void MiSinteEditor::scaleLabel (juce::Label& l, float s)
 {
-    l.setFont (juce::Font (juce::FontOptions (14.0f * s)));
+    l.setFont (juce::Font (juce::FontOptions (13.0f * s)));
 }
 
 // Coloca un knob: la etiqueta en (x, y) y el dial justo debajo
-void MiSinteEditor::placeKnob (Knob& k, int x, int y, int sliderH, float s)
+void MiSinteEditor::placeKnob (Knob& k, int x, int y, int w, int sliderH, float s)
 {
     auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
     scaleLabel (k.label, s);
-    k.label.setBounds (S (x), S (y), S (kKnobW), S (22));
+    k.label.setBounds (S (x), S (y), S (w), S (22));
 
-    k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, S (70), S (18));
-    k.slider.setBounds (S (x), S (y + 24), S (kKnobW), S (sliderH));
+    k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, S (w - 8), S (18));
+    k.slider.setBounds (S (x), S (y + 24), S (w), S (sliderH));
 }
 
-void MiSinteEditor::layoutLfo (LfoUI& u, int block, float s)
+void MiSinteEditor::layoutLfo (LfoUI& u, int index, float s)
 {
     auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
-    const int y = kTop + block * kLfoBlockH;
+
+    const int bx = (index % 2 == 0) ? 24 : 512;
+    const int by = kTop + 8 + (index / 2) * kLfoBlockH;
 
     u.title.setFont (juce::Font (juce::FontOptions (16.0f * s, juce::Font::bold)));
-    u.title.setBounds (S (kMargin), S (y), S (60), S (24));
-    u.retrig.setBounds (S (kMargin + 65), S (y), S (85), S (24));
-    u.waveName.setFont (juce::Font (juce::FontOptions (12.0f * s)));
-    u.waveName.setBounds (S (kMargin + 155), S (y + 2), S (215), S (20));
+    u.title.setBounds (S (bx), S (by), S (60), S (26));
+    u.retrig.setBounds (S (bx + 66), S (by), S (84), S (26));
+    u.loadBtn.setBounds (S (bx + 156), S (by), S (70), S (26));
 
     scaleLabel (u.waveL, s);
     scaleLabel (u.destL, s);
     scaleLabel (u.syncL, s);
+    u.waveName.setFont (juce::Font (juce::FontOptions (12.0f * s)));
 
-    u.waveL.setBounds (S (kMargin), S (y + 30), S (62), S (24));
-    u.wave.setBounds (S (kMargin + 68), S (y + 30), S (100), S (24));
-    u.loadBtn.setBounds (S (kMargin + 172), S (y + 30), S (70), S (24));
-    u.destL.setBounds (S (kMargin), S (y + 58), S (62), S (24));
-    u.dest.setBounds (S (kMargin + 68), S (y + 58), S (110), S (24));
-    u.syncL.setBounds (S (kMargin), S (y + 86), S (62), S (24));
-    u.sync.setBounds (S (kMargin + 68), S (y + 86), S (110), S (24));
+    u.waveL.setBounds (S (bx), S (by + 38), S (88), S (26));
+    u.wave.setBounds (S (bx + 92), S (by + 38), S (100), S (26));
+    u.destL.setBounds (S (bx), S (by + 74), S (88), S (26));
+    u.dest.setBounds (S (bx + 92), S (by + 74), S (100), S (26));
+    u.syncL.setBounds (S (bx), S (by + 110), S (88), S (26));
+    u.sync.setBounds (S (bx + 92), S (by + 110), S (100), S (26));
+    u.waveName.setBounds (S (bx), S (by + 152), S (200), S (20));
 
-    int x = 400;
+    int x = bx + 200;
     for (auto* k : { &u.rate, &u.amt, &u.fade, &u.phase })
     {
-        placeKnob (*k, x, y + 4, 96, s);
-        x += 90;
+        placeKnob (*k, x, by + 38, 66, 120, s);
+        x += 66;
     }
 }
+
+// ------------------------------------------------------------------------------------
 
 void MiSinteEditor::paint (juce::Graphics& g)
 {
     const float s = (float) getWidth() / (float) kDesignW;
     auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
-    g.fillAll (juce::Colour (0xff1e1e24));
-
-    const float x1 = (float) S (kMargin);
-    const float x2 = (float) (getWidth() - S (kMargin));
-    const juce::Colour lineColour = juce::Colours::white.withAlpha (0.15f);
     const juce::Colour titleColour = juce::Colours::white.withAlpha (0.55f);
+    const juce::Colour lineColour = juce::Colours::white.withAlpha (0.10f);
 
-    g.setColour (lineColour);
-    g.drawHorizontalLine (S (kTop - 4), x1, x2);
+    g.fillAll (juce::Colour (0xff17171c));
+
+    auto panel = [&] (int x, int y, int w, int h)
+    {
+        const juce::Rectangle<float> r ((float) S (x), (float) S (y), (float) S (w), (float) S (h));
+        g.setColour (juce::Colour (0xff22222a));
+        g.fillRoundedRectangle (r, 7.0f * s);
+        g.setColour (juce::Colour (0xff343440));
+        g.drawRoundedRectangle (r, 7.0f * s, 1.0f);
+    };
+
+    auto caption = [&] (const juce::String& text, int x, int y, int w)
+    {
+        g.setColour (titleColour);
+        g.setFont (juce::Font (juce::FontOptions (12.5f * s, juce::Font::bold)));
+        g.drawText (text, S (x), S (y), S (w), S (18), juce::Justification::left);
+    };
+
+    auto vline = [&] (int x, int y, int h)
+    {
+        g.setColour (lineColour);
+        g.drawVerticalLine (S (x), (float) S (y), (float) S (y + h));
+    };
+
+    auto hline = [&] (int x1, int x2, int y)
+    {
+        g.setColour (lineColour);
+        g.drawHorizontalLine (S (y), (float) S (x1), (float) S (x2));
+    };
 
     if (currentPage == 0)
     {
         const int y1 = kTop;
-        const int y2 = kTop + kSectionH;
+        const int y2 = kRow2Y;
 
-        g.setColour (titleColour);
-        g.setFont (13.0f * s);
-        g.drawText ("OSCILADOR", S (kMargin), S (y1 + 6), S (90), S (18), juce::Justification::left);
-        g.drawText ("UNISON", S (kUnisonX), S (y1 + 6), S (60), S (18), juce::Justification::left);
-        g.drawText ("FILTRO", S (kMargin), S (y2 + 6), S (60), S (18), juce::Justification::left);
-        g.drawText ("ENV FILTRO", S (kEnvFilterX), S (y2 + 6), S (100), S (18), juce::Justification::left);
-        g.drawText ("ENV AMP", S (kEnvAmpX), S (y2 + 6), S (100), S (18), juce::Justification::left);
+        // ---------- Panel del oscilador ----------
+        panel (12, y1, 976, kOscH);
+        caption ("OSCILLATOR", 24, y1 + 6, 120);
+        caption ("TUNING", 296, y1 + 6, 80);
+        caption ("UNISON", 296, y1 + 158, 60);
+        caption ("OUTPUT", 896, y1 + 6, 80);
 
-        g.setColour (lineColour);
-        g.drawHorizontalLine (S (y2 - 6), x1, x2);
-
-        // Separadores verticales entre grupos
-        auto vline = [&] (int x, int yTop, int h)
+        // Selector de tipo de oscilador (como en Dune 3). Por ahora solo VA esta activo.
+        auto pill = [&] (const juce::String& text, int x, bool active)
         {
-            g.drawVerticalLine (S (x), (float) S (yTop), (float) S (yTop + h));
+            const juce::Rectangle<float> r ((float) S (x), (float) S (y1 + 30), (float) S (44), (float) S (22));
+            g.setColour (active ? juce::Colour (0xffe9843a) : juce::Colour (0xff2c2c36));
+            g.fillRoundedRectangle (r, 11.0f * s);
+            g.setColour (active ? juce::Colour (0xff1a1208) : juce::Colour (0xff6c6c78));
+            g.setFont (juce::Font (juce::FontOptions (12.0f * s, juce::Font::bold)));
+            g.drawText (text, r.toNearestInt(), juce::Justification::centred);
         };
-        vline (kUnisonX - 10, y1 + 6, kSectionH - 22);
-        vline (kVolumeX - 10, y1 + 6, kSectionH - 22);
-        vline (kEnvFilterX - 10, y2 + 6, kSectionH - 22);
-        vline (kEnvAmpX - 10, y2 + 6, kSectionH - 22);
+        pill ("VA", 24, true);
+        pill ("WT", 72, false);
+        pill ("FM", 120, false);
+
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.setFont (juce::Font (juce::FontOptions (11.0f * s)));
+        g.drawText ("WAVEFORM", S (24), S (y1 + 148), S (230), S (16), juce::Justification::centred);
+
+        vline (276, y1 + 10, kOscH - 20);
+        hline (290, 976, y1 + 153);
+        vline (886, y1 + 10, 140);
+
+        // ---------- Filtro (con su envolvente) ----------
+        panel (12, y2, 604, kRow2H);
+        caption ("FILTER", 24, y2 + 6, 60);
+        caption ("FILTER ENV", 284, y2 + 6, 100);
+        vline (272, y2 + 10, kRow2H - 20);
+
+        // ---------- Envolvente de amplitud ----------
+        panel (628, y2, 360, kRow2H);
+        caption ("AMP ENV", 640, y2 + 6, 100);
     }
     else
     {
-        g.setColour (lineColour);
-        for (int b = 1; b < 3; ++b)
-            g.drawHorizontalLine (S (kTop + b * kLfoBlockH - 6), x1, x2);
+        for (int i = 0; i < kNumLfos; ++i)
+        {
+            const int bx = (i % 2 == 0) ? 24 : 512;
+            const int by = kTop + 8 + (i / 2) * kLfoBlockH;
+            panel (bx - 12, by - 8, 482, 220);
+        }
     }
+}
+
+// Cruz sobre los knobs atenuados, como en el panel de Dune 3
+void MiSinteEditor::paintOverChildren (juce::Graphics& g)
+{
+    if (currentPage != 0)
+        return;
+
+    const float s = (float) getWidth() / (float) kDesignW;
+
+    auto drawX = [&] (const Knob& k)
+    {
+        if (k.slider.isEnabled())
+            return;
+
+        const auto area = k.slider.getBounds().toFloat().withTrimmedBottom (18.0f * s);
+        const auto c = area.getCentre();
+        const float r = juce::jmin (area.getWidth(), area.getHeight()) * 0.2f;
+
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.drawEllipse (c.x - r * 1.5f, c.y - r * 1.5f, r * 3.0f, r * 3.0f, 1.2f);
+        g.drawLine (c.x - r * 0.7f, c.y - r * 0.7f, c.x + r * 0.7f, c.y + r * 0.7f, 1.6f);
+        g.drawLine (c.x - r * 0.7f, c.y + r * 0.7f, c.x + r * 0.7f, c.y - r * 0.7f, 1.6f);
+    };
+
+    drawX (pulseWidth);
+    drawX (syncFreq);
+    drawX (harmTilt);
 }
 
 void MiSinteEditor::resized()
@@ -354,58 +473,52 @@ void MiSinteEditor::resized()
     const float s = (float) getWidth() / (float) kDesignW;
     auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
-    pageSoundBtn.setBounds (S (kMargin), S (6), S (90), S (26));
-    pageModBtn.setBounds (S (kMargin + 96), S (6), S (90), S (26));
+    pageOscBtn.setBounds (S (20), S (6), S (80), S (26));
+    pageLfoBtn.setBounds (S (106), S (6), S (80), S (26));
 
     const int y1 = kTop;
-    const int y2 = kTop + kSectionH;
-    const int knobY1 = y1 + 32;
-    const int knobY2 = y2 + 32;
-    const int sliderH = 108;
+    const int y2 = kRow2Y;
 
-    // --- Fila 1: oscilador (afinacion + unison) y volumen ---
-    scaleLabel (waveLabel, s);
-    waveLabel.setBounds (S (kMargin + 88), S (y1 + 4), S (44), S (24));
-    waveBox.setBounds (S (kMargin + 136), S (y1 + 4), S (110), S (24));
+    // ---------- Oscilador: columna izquierda ----------
+    waveDisplay.setBounds (S (24), S (y1 + 62), S (230), S (84));
 
-    placeKnob (octave,     20,  knobY1, sliderH, s);
-    placeKnob (semi,       100, knobY1, sliderH, s);
-    placeKnob (fine,       180, knobY1, sliderH, s);
-    placeKnob (pulseWidth, 260, knobY1, sliderH, s);
-    placeKnob (glide,      340, knobY1, sliderH, s);
+    placeKnob (pulseWidth, 24,  y1 + 176, kKnobW, kDialH, s);
+    placeKnob (syncFreq,   108, y1 + 176, kKnobW, kDialH, s);
+    syncBtn.setBounds  (S (196), S (y1 + 206), S (58), S (26));
+    resetBtn.setBounds (S (196), S (y1 + 240), S (58), S (26));
 
-    scaleLabel (unisonModeLabel, s);
-    unisonModeLabel.setBounds (S (kUnisonX + 56), S (y1 + 4), S (44), S (24));
-    unisonModeBox.setBounds (S (kUnisonX + 104), S (y1 + 4), S (110), S (24));
+    // ---------- Oscilador: afinacion y salida ----------
+    placeKnob (octave, 296, y1 + 30, kKnobW, kDialH, s);
+    placeKnob (semi,   376, y1 + 30, kKnobW, kDialH, s);
+    placeKnob (fine,   456, y1 + 30, kKnobW, kDialH, s);
+    placeKnob (glide,  536, y1 + 30, kKnobW, kDialH, s);
+    placeKnob (drift,  616, y1 + 30, kKnobW, kDialH, s);
+    placeKnob (volume, 896, y1 + 30, kKnobW, kDialH, s);
 
-    placeKnob (unisonVoices, kUnisonX,       knobY1, sliderH, s);
-    placeKnob (unisonDetune, kUnisonX + 80,  knobY1, sliderH, s);
-    placeKnob (unisonStereo, kUnisonX + 160, knobY1, sliderH, s);
-    placeKnob (drift,        kUnisonX + 240, knobY1, sliderH, s);
-    placeKnob (swarmRate,    kUnisonX + 320, knobY1, sliderH, s);
+    // ---------- Oscilador: unison ----------
+    unisonModeBox.setBounds (S (360), S (y1 + 156), S (130), S (24));
+    placeKnob (unisonVoices, 296, y1 + 184, kKnobW, kDialH, s);
+    placeKnob (unisonDetune, 376, y1 + 184, kKnobW, kDialH, s);
+    placeKnob (unisonSpread, 456, y1 + 184, kKnobW, kDialH, s);
+    placeKnob (harmTilt,     536, y1 + 184, kKnobW, kDialH, s);
 
-    placeKnob (volume, kVolumeX, knobY1, sliderH, s);
+    // ---------- Filtro + filter env ----------
+    filterBox.setBounds (S (84), S (y2 + 4), S (130), S (24));
+    placeKnob (cutoff,   24,  y2 + 32, kKnobW, kDialH, s);
+    placeKnob (reso,     104, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (envAmt,   184, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (fAttack,  284, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (fDecay,   364, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (fSustain, 444, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (fRelease, 524, y2 + 32, kKnobW, kDialH, s);
 
-    // --- Fila 2: filtro y envolventes ---
-    scaleLabel (filterLabel, s);
-    filterLabel.setBounds (S (kMargin + 56), S (y2 + 4), S (38), S (24));
-    filterBox.setBounds (S (kMargin + 98), S (y2 + 4), S (122), S (24));
+    // ---------- Amp env ----------
+    placeKnob (attack,  640, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (decay,   720, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (sustain, 800, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (release, 880, y2 + 32, kKnobW, kDialH, s);
 
-    placeKnob (cutoff,    20,  knobY2, sliderH, s);
-    placeKnob (resonance, 100, knobY2, sliderH, s);
-    placeKnob (envAmt,    180, knobY2, sliderH, s);
-
-    placeKnob (fAttack,  kEnvFilterX,       knobY2, sliderH, s);
-    placeKnob (fDecay,   kEnvFilterX + 80,  knobY2, sliderH, s);
-    placeKnob (fSustain, kEnvFilterX + 160, knobY2, sliderH, s);
-    placeKnob (fRelease, kEnvFilterX + 240, knobY2, sliderH, s);
-
-    placeKnob (attack,  kEnvAmpX,       knobY2, sliderH, s);
-    placeKnob (decay,   kEnvAmpX + 80,  knobY2, sliderH, s);
-    placeKnob (sustain, kEnvAmpX + 160, knobY2, sliderH, s);
-    placeKnob (release, kEnvAmpX + 240, knobY2, sliderH, s);
-
-    // --- Pestana LFOs ---
-    for (int i = 0; i < 3; ++i)
+    // ---------- Pestana LFOs ----------
+    for (int i = 0; i < kNumLfos; ++i)
         layoutLfo (lfoUI[i], i, s);
 }

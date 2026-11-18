@@ -10,8 +10,8 @@ MiSinteProcessor::MiSinteProcessor()
                       juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "STATE", createLayout())
 {
-    // Las ondas personalizadas de los LFO empiezan siendo un seno
-    for (int i = 0; i < 3; ++i)
+    // Las user waves de los LFO empiezan siendo un seno
+    for (int i = 0; i < kNumLfos; ++i)
         for (int j = 0; j < kLfoTableSize; ++j)
             lfoTables[i][(size_t) j].store (std::sin (juce::MathConstants<float>::twoPi
                                                       * (float) j / (float) kLfoTableSize));
@@ -22,6 +22,9 @@ MiSinteProcessor::MiSinteProcessor()
     vp.semi       = apvts.getRawParameterValue ("semi");
     vp.fine       = apvts.getRawParameterValue ("fine");
     vp.pw         = apvts.getRawParameterValue ("pw");
+    vp.sync       = apvts.getRawParameterValue ("oscsync");
+    vp.syncFreq   = apvts.getRawParameterValue ("syncfreq");
+    vp.reset      = apvts.getRawParameterValue ("oscreset");
     vp.attack     = apvts.getRawParameterValue ("attack");
     vp.decay      = apvts.getRawParameterValue ("decay");
     vp.sustain    = apvts.getRawParameterValue ("sustain");
@@ -38,22 +41,22 @@ MiSinteProcessor::MiSinteProcessor()
     vp.unisonMode = apvts.getRawParameterValue ("umode");
     vp.detune     = apvts.getRawParameterValue ("udetune");
     vp.stereo     = apvts.getRawParameterValue ("ustereo");
+    vp.tilt       = apvts.getRawParameterValue ("uharm");
     vp.drift      = apvts.getRawParameterValue ("drift");
     vp.glide      = apvts.getRawParameterValue ("glide");
-    vp.swarmRate  = apvts.getRawParameterValue ("swarmrate");
 
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kNumLfos; ++i)
     {
         const juce::String n (i + 1);
-        vp.lfoWave[i]   = apvts.getRawParameterValue ("lfo" + n + "wave");
-        vp.lfoRate[i]   = apvts.getRawParameterValue ("lfo" + n + "rate");
-        vp.lfoSync[i]   = apvts.getRawParameterValue ("lfo" + n + "sync");
-        vp.lfoAmt[i]    = apvts.getRawParameterValue ("lfo" + n + "amt");
-        vp.lfoDest[i]   = apvts.getRawParameterValue ("lfo" + n + "dest");
-        vp.lfoRetrig[i] = apvts.getRawParameterValue ("lfo" + n + "retrig");
-        vp.lfoFade[i]   = apvts.getRawParameterValue ("lfo" + n + "fade");
+        vp.lfoWave[i]       = apvts.getRawParameterValue ("lfo" + n + "wave");
+        vp.lfoRate[i]       = apvts.getRawParameterValue ("lfo" + n + "rate");
+        vp.lfoSync[i]       = apvts.getRawParameterValue ("lfo" + n + "sync");
+        vp.lfoAmt[i]        = apvts.getRawParameterValue ("lfo" + n + "amt");
+        vp.lfoDest[i]       = apvts.getRawParameterValue ("lfo" + n + "dest");
+        vp.lfoRetrig[i]     = apvts.getRawParameterValue ("lfo" + n + "retrig");
+        vp.lfoFade[i]       = apvts.getRawParameterValue ("lfo" + n + "fade");
         vp.lfoPhaseStart[i] = apvts.getRawParameterValue ("lfo" + n + "phase");
-        vp.lfoTable[i]  = lfoTables[i].data();
+        vp.lfoTable[i]      = lfoTables[i].data();
     }
 
     vp.bpm        = &hostBpm;
@@ -76,46 +79,75 @@ MiSinteProcessor::createLayout()
         return NormalisableRange<float> (0.001f, maxSeconds, 0.0f, 0.3f);
     };
 
-    // --- Oscilador y amplitud ---
-    layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "volume", 1 }, "Volumen",
-        NormalisableRange<float> (0.0f, 1.0f), 0.7f));
-
+    // --- Oscillator ---
     layout.add (std::make_unique<AudioParameterChoice> (
-        ParameterID { "wave", 1 }, "Onda",
-        StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada" }, 2));
+        ParameterID { "wave", 1 }, "Osc Wave",
+        StringArray { "SINE", "TRIANGLE", "SAW", "SQUARE" }, 2));
 
     layout.add (std::make_unique<AudioParameterInt> (
-        ParameterID { "octave", 1 }, "Octava", -4, 4, 0));
+        ParameterID { "octave", 1 }, "Octave", -4, 4, 0));
 
     layout.add (std::make_unique<AudioParameterInt> (
-        ParameterID { "semi", 1 }, "Semitono", -12, 12, 0));
+        ParameterID { "semi", 1 }, "Semitone", -12, 12, 0));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "fine", 1 }, "Fine",
+        ParameterID { "fine", 1 }, "Fine Tune",
         NormalisableRange<float> (-100.0f, 100.0f), 0.0f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "pw", 1 }, "PW",
+        ParameterID { "pw", 1 }, "Pulse Width",
         NormalisableRange<float> (0.05f, 0.95f), 0.5f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "attack", 1 }, "Ataque", timeRange (10.0f), 0.01f));
+    layout.add (std::make_unique<AudioParameterBool> (
+        ParameterID { "oscsync", 1 }, "Osc Sync", false));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "decay", 1 }, "Decay", timeRange (10.0f), 0.3f));
+        ParameterID { "syncfreq", 1 }, "Sync Freq",
+        NormalisableRange<float> (0.0f, 36.0f), 12.0f));
+
+    layout.add (std::make_unique<AudioParameterBool> (
+        ParameterID { "oscreset", 1 }, "Osc Reset", false));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "sustain", 1 }, "Sustain",
+        ParameterID { "glide", 1 }, "Glide",
+        NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "volume", 1 }, "Volume",
+        NormalisableRange<float> (0.0f, 1.0f), 0.7f));
+
+    // --- Unison ---
+    layout.add (std::make_unique<AudioParameterInt> (
+        ParameterID { "unison", 1 }, "Unison Voices", 1, 16, 1));
+
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "umode", 1 }, "Unison Mode",
+        StringArray { "NORMAL", "OCTAVES", "FIFTH", "MAJOR", "MINOR", "MAJOR 7", "MINOR 7",
+                      "SUB", "HARMONIC" }, 0));
+
+    // Detune de 0 a 1200 cents (una octava). La primera mitad del recorrido
+    // del knob cubre de 0 a 100 cents para tener control fino.
+    NormalisableRange<float> detuneRange (0.0f, 1200.0f, 0.0f);
+    detuneRange.setSkewForCentre (100.0f);
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "udetune", 1 }, "Unison Detune", detuneRange, 25.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "ustereo", 1 }, "Unison Spread",
         NormalisableRange<float> (0.0f, 1.0f), 0.7f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "release", 1 }, "Release", timeRange (15.0f), 0.3f));
+        ParameterID { "uharm", 1 }, "Harmonic Tilt",
+        NormalisableRange<float> (0.0f, 1.0f), 0.6f));
 
-    // --- Filtro ---
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "drift", 1 }, "Drift",
+        NormalisableRange<float> (0.0f, 1.0f), 0.0f));
+
+    // --- Filter ---
     layout.add (std::make_unique<AudioParameterChoice> (
-        ParameterID { "ftype", 1 }, "Tipo de filtro",
-        StringArray { "Paso bajo", "Paso alto", "Paso banda", "Notch" }, 0));
+        ParameterID { "ftype", 1 }, "Filter Type",
+        StringArray { "LOWPASS", "HIGHPASS", "BANDPASS", "NOTCH" }, 0));
 
     NormalisableRange<float> cutoffRange (20.0f, 20000.0f, 0.0f);
     cutoffRange.setSkewForCentre (1000.0f);
@@ -123,99 +155,80 @@ MiSinteProcessor::createLayout()
         ParameterID { "cutoff", 1 }, "Cutoff", cutoffRange, 20000.0f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "resonance", 1 }, "Resonancia",
+        ParameterID { "resonance", 1 }, "Reso",
         NormalisableRange<float> (0.0f, 1.0f), 0.1f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "envamt", 1 }, "Cantidad env",
+        ParameterID { "envamt", 1 }, "Filter Env Amount",
         NormalisableRange<float> (-1.0f, 1.0f), 0.0f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "fattack", 1 }, "Filtro ataque", timeRange (10.0f), 0.01f));
+        ParameterID { "fattack", 1 }, "Filter Attack", timeRange (10.0f), 0.01f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "fdecay", 1 }, "Filtro decay", timeRange (10.0f), 0.3f));
+        ParameterID { "fdecay", 1 }, "Filter Decay", timeRange (10.0f), 0.3f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "fsustain", 1 }, "Filtro sustain",
+        ParameterID { "fsustain", 1 }, "Filter Sustain",
         NormalisableRange<float> (0.0f, 1.0f), 1.0f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "frelease", 1 }, "Filtro release", timeRange (15.0f), 0.3f));
+        ParameterID { "frelease", 1 }, "Filter Release", timeRange (15.0f), 0.3f));
 
-    // --- Unison, drift y glide ---
-    layout.add (std::make_unique<AudioParameterInt> (
-        ParameterID { "unison", 1 }, "Unison voces", 1, 16, 1));
-
-    layout.add (std::make_unique<AudioParameterChoice> (
-        ParameterID { "umode", 1 }, "Unison modo",
-        StringArray { "Normal", "Octavas", "Quinta", "Mayor", "Menor", "Mayor 7", "Menor 7",
-                      "Sub", "Swarm" }, 0));
-
-    // Detune de 0 a 1200 cents (una octava). La primera mitad del recorrido
-    // del knob cubre de 0 a 100 cents para tener control fino.
-    NormalisableRange<float> detuneRange (0.0f, 1200.0f, 0.0f);
-    detuneRange.setSkewForCentre (100.0f);
+    // --- Amp envelope ---
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "udetune", 1 }, "Unison detune", detuneRange, 25.0f));
+        ParameterID { "attack", 1 }, "Amp Attack", timeRange (10.0f), 0.01f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "ustereo", 1 }, "Unison estereo",
+        ParameterID { "decay", 1 }, "Amp Decay", timeRange (10.0f), 0.3f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "sustain", 1 }, "Amp Sustain",
         NormalisableRange<float> (0.0f, 1.0f), 0.7f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "drift", 1 }, "Drift",
-        NormalisableRange<float> (0.0f, 1.0f), 0.0f));
+        ParameterID { "release", 1 }, "Amp Release", timeRange (15.0f), 0.3f));
 
-    layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "glide", 1 }, "Glide",
-        NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
-
-    // Velocidad de la modulacion individual del modo Swarm
-    NormalisableRange<float> swarmRange (0.02f, 10.0f, 0.0f);
-    swarmRange.setSkewForCentre (0.5f);
-    layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { "swarmrate", 1 }, "Swarm rate", swarmRange, 0.45f));
-
-    // --- 3 LFOs ---
-    for (int i = 1; i <= 3; ++i)
+    // --- LFOs ---
+    for (int i = 1; i <= kNumLfos; ++i)
     {
         const String n (i);
         const String name = "LFO " + n + " ";
 
         layout.add (std::make_unique<AudioParameterChoice> (
-            ParameterID { "lfo" + n + "wave", 1 }, name + "onda",
-            StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada", "Aleatorio", "Personal" }, 0));
+            ParameterID { "lfo" + n + "wave", 1 }, name + "Wave",
+            StringArray { "SINE", "TRIANGLE", "SAW", "SQUARE", "RANDOM", "USER WAVE" }, 0));
 
         NormalisableRange<float> rateRange (0.01f, 30.0f, 0.0f);
         rateRange.setSkewForCentre (2.0f);
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "lfo" + n + "rate", 1 }, name + "rate", rateRange, 2.0f));
+            ParameterID { "lfo" + n + "rate", 1 }, name + "Rate", rateRange, 2.0f));
 
         layout.add (std::make_unique<AudioParameterChoice> (
-            ParameterID { "lfo" + n + "sync", 1 }, name + "sync",
-            StringArray { "Libre", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
+            ParameterID { "lfo" + n + "sync", 1 }, name + "Sync",
+            StringArray { "FREE", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
                           "8/1T", "4/1T", "2/1T", "1/1T", "1/2T", "1/4T", "1/8T", "1/16T", "1/32T" }, 0));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "lfo" + n + "amt", 1 }, name + "cantidad",
+            ParameterID { "lfo" + n + "amt", 1 }, name + "Amount",
             NormalisableRange<float> (-1.0f, 1.0f), 0.5f));
 
         layout.add (std::make_unique<AudioParameterChoice> (
-            ParameterID { "lfo" + n + "dest", 1 }, name + "destino",
-            StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune", "PW", "Rate" }, 0));
+            ParameterID { "lfo" + n + "dest", 1 }, name + "Destination",
+            StringArray { "NONE", "PITCH", "CUTOFF", "RESO", "VOLUME", "DETUNE", "PW", "SYNC FREQ",
+                          "LFO 1 RATE", "LFO 2 RATE", "LFO 3 RATE", "LFO 4 RATE" }, 0));
 
         layout.add (std::make_unique<AudioParameterBool> (
-            ParameterID { "lfo" + n + "retrig", 1 }, name + "retrig", true));
+            ParameterID { "lfo" + n + "retrig", 1 }, name + "Retrig", true));
 
         // Fase inicial (en grados) cuando Retrig esta activado. 90 = el seno
         // empieza en su maximo, asi el LFO actua desde el primer instante.
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "lfo" + n + "phase", 1 }, name + "fase",
+            ParameterID { "lfo" + n + "phase", 1 }, name + "Phase",
             NormalisableRange<float> (0.0f, 360.0f), 90.0f));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "lfo" + n + "fade", 1 }, name + "fade in",
+            ParameterID { "lfo" + n + "fade", 1 }, name + "Fade In",
             NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
     }
 
@@ -261,8 +274,8 @@ void MiSinteProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
 
-    // Guarda las ondas personalizadas cargadas en los LFO
-    for (int i = 0; i < 3; ++i)
+    // Guarda las user waves cargadas en los LFO
+    for (int i = 0; i < kNumLfos; ++i)
     {
         if (! lfoWaveLoaded[i])
             continue;
@@ -290,8 +303,8 @@ void MiSinteProcessor::setStateInformation (const void* data, int size)
         const auto tree = juce::ValueTree::fromXml (*xml);
         apvts.replaceState (tree);
 
-        // Recupera las ondas personalizadas de los LFO
-        for (int i = 0; i < 3; ++i)
+        // Recupera las user waves de los LFO
+        for (int i = 0; i < kNumLfos; ++i)
         {
             const juce::Identifier id ("lfoWave" + juce::String (i + 1));
             if (! tree.hasProperty (id))
@@ -314,14 +327,14 @@ void MiSinteProcessor::setStateInformation (const void* data, int size)
 
 juce::String MiSinteProcessor::getLfoWaveName (int index) const
 {
-    return (index >= 0 && index < 3 && lfoWaveLoaded[index]) ? lfoWaveName[index] : juce::String();
+    return (index >= 0 && index < kNumLfos && lfoWaveLoaded[index]) ? lfoWaveName[index] : juce::String();
 }
 
 // Carga un archivo de audio como onda de un ciclo para un LFO: el archivo completo
 // se interpreta como un solo ciclo y se remuestrea a kLfoTableSize puntos.
 bool MiSinteProcessor::loadLfoWave (int index, const juce::File& file)
 {
-    if (index < 0 || index >= 3)
+    if (index < 0 || index >= kNumLfos)
         return false;
 
     juce::AudioFormatManager formats;

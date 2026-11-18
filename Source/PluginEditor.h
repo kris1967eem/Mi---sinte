@@ -1,11 +1,15 @@
 #pragma once
 #include "PluginProcessor.h"
+#include "WaveformDisplay.h"
 
-class MiSinteEditor : public juce::AudioProcessorEditor
+class MiSinteEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit MiSinteEditor (MiSinteProcessor&);
+    ~MiSinteEditor() override = default;
+
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
 private:
@@ -27,15 +31,18 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> retrigA;
     };
 
+    void timerCallback() override;
     void addToPage (int page, juce::Component& c);
     void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
-                    const juce::String& suffix = {}, int decimals = -1, int page = 0);
+                    const juce::String& suffix = {}, int decimals = -1,
+                    juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0);
     void setupLfo (LfoUI& u, int index);
     void chooseLfoWave (int index);
-    void placeKnob (Knob& k, int x, int y, int sliderH, float s);
-    void layoutLfo (LfoUI& u, int block, float s);
+    void placeKnob (Knob& k, int x, int y, int w, int sliderH, float s);
+    void layoutLfo (LfoUI& u, int index, float s);
     void showPage (int page);
-    void updateSwarmKnob();
+    void applyEnabledStates();
+    static void setKnobEnabled (Knob& k, bool enabled);
     static void scaleLabel (juce::Label& l, float s);
 
     MiSinteProcessor& proc;
@@ -43,26 +50,36 @@ private:
     std::vector<juce::Component*> pages[2];
     std::unique_ptr<juce::FileChooser> chooser;
 
-    juce::TextButton pageSoundBtn, pageModBtn;
+    juce::TextButton pageOscBtn, pageLfoBtn;
 
-    // Pagina 1: sonido. Oscilador y amplitud
-    Knob octave, semi, fine, pulseWidth, volume, attack, decay, sustain, release;
-    juce::ComboBox waveBox;
-    juce::Label waveLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveAttach;
+    // --- Pagina OSC: oscilador ---
+    WaveformDisplay waveDisplay;
+    juce::TextButton syncBtn, resetBtn;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncA, resetA;
+    Knob pulseWidth, syncFreq, octave, semi, fine, glide, drift, volume;
 
-    // Filtro
-    Knob cutoff, resonance, envAmt, fAttack, fDecay, fSustain, fRelease;
-    juce::ComboBox filterBox;
-    juce::Label filterLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> filterAttach;
-
-    // Unison, drift y glide
-    Knob unisonVoices, unisonDetune, unisonStereo, drift, glide, swarmRate;
+    // Unison
+    Knob unisonVoices, unisonDetune, unisonSpread, harmTilt;
     juce::ComboBox unisonModeBox;
-    juce::Label unisonModeLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> unisonModeAttach;
 
-    // Pagina 2: modulacion (3 LFOs)
-    LfoUI lfoUI[3];
+    // Filtro (con su envolvente)
+    juce::ComboBox filterBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> filterAttach;
+    Knob cutoff, reso, envAmt, fAttack, fDecay, fSustain, fRelease;
+
+    // Envolvente de amplitud
+    Knob attack, decay, sustain, release;
+
+    // --- Pagina LFOs ---
+    LfoUI lfoUI[kNumLfos];
+
+    // Estado para atenuar los knobs que no aplican
+    std::atomic<float>* waveRaw = nullptr;
+    std::atomic<float>* syncRaw = nullptr;
+    std::atomic<float>* modeRaw = nullptr;
+    int cachedWave = -1;
+    int cachedMode = -1;
+    bool cachedSync = false;
+    bool cachedValid = false;
 };
