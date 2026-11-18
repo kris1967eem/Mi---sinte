@@ -32,7 +32,7 @@ private:
                     const juce::String& suffix = {}, int decimals = -1, int page = 0);
     void setupLfo (LfoUI& u, int index);
     void chooseLfoWave (int index);
-    void layoutRow (std::initializer_list<Knob*> knobs, int labelY, float s);
+    void placeKnob (Knob& k, int x, int y, int sliderH, float s);
     void layoutLfo (LfoUI& u, int block, float s);
     void showPage (int page);
     void updateSwarmKnob();

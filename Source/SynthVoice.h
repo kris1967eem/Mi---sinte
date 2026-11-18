@@ -118,7 +118,7 @@ public:
             lfoHold[l] = (double) random.nextFloat() * 2.0 - 1.0;
         }
         lfoAge = 0.0;
-        lfoPitch = lfoCut = lfoDetune = lfoPw = 0.0;
+        lfoPitch = lfoCut = lfoDetune = lfoPw = lfoRateOct = 0.0;
         lfoVol = 1.0f;
 
         sL1 = sL2 = sR1 = sR2 = 0.0;
@@ -290,12 +290,12 @@ private:
     }
 
     // Avanza los 3 LFO y calcula su efecto sobre cada destino:
-    // 0 Ninguno, 1 Pitch, 2 Cutoff, 3 Volumen, 4 Detune, 5 PW
+    // 0 Ninguno, 1 Pitch, 2 Cutoff, 3 Volumen, 4 Detune, 5 PW, 6 Rate (del Swarm)
     void updateLfos (double sr)
     {
         lfoAge += 16.0 / sr;
 
-        double pitch = 0.0, cut = 0.0, vol = 0.0, det = 0.0, pwMod = 0.0;
+        double pitch = 0.0, cut = 0.0, vol = 0.0, det = 0.0, pwMod = 0.0, rateOct = 0.0;
 
         for (int l = 0; l < kNumLfos; ++l)
         {
@@ -334,6 +334,7 @@ private:
                 case 3:  vol   += v * c.amt; break;
                 case 4:  det   += v * c.amt * 300.0; break;
                 case 5:  pwMod += v * c.amt * 0.45; break;
+                case 6:  rateOct += v * c.amt * 3.0; break;   // +/- 3 octavas de velocidad
                 default: break;
             }
         }
@@ -342,6 +343,7 @@ private:
         lfoCut = cut;
         lfoDetune = det;
         lfoPw = pwMod;
+        lfoRateOct = rateOct;
         lfoVol = (float) juce::jlimit (0.0, 2.0, 1.0 + vol);
     }
 
@@ -388,7 +390,7 @@ private:
                 // modulacion lenta e individual de cada oscilador
                 pos = 0.5 * pos + 0.5 * pos * std::abs (pos);
 
-                swarmPhase[u] += swarmRate[u] * swarmHz * 16.0 / sr;
+                swarmPhase[u] += swarmRate[u] * swarmHz * std::exp2 (lfoRateOct) * 16.0 / sr;
                 if (swarmPhase[u] >= 1.0)
                     swarmPhase[u] -= 1.0;
 
@@ -526,7 +528,7 @@ private:
     double lfoPhase[kNumLfos] {};
     double lfoHold[kNumLfos] {};
     double lfoAge = 0.0;
-    double lfoPitch = 0.0, lfoCut = 0.0, lfoDetune = 0.0, lfoPw = 0.0;
+    double lfoPitch = 0.0, lfoCut = 0.0, lfoDetune = 0.0, lfoPw = 0.0, lfoRateOct = 0.0;
     double pwNow = 0.5;
     double swarmHz = 0.45;
     float lfoVol = 1.0f;

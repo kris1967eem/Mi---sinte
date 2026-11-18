@@ -203,7 +203,7 @@ MiSinteProcessor::createLayout()
 
         layout.add (std::make_unique<AudioParameterChoice> (
             ParameterID { "lfo" + n + "dest", 1 }, name + "destino",
-            StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune", "PW" }, 0));
+            StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune", "PW", "Rate" }, 0));
 
         layout.add (std::make_unique<AudioParameterBool> (
             ParameterID { "lfo" + n + "retrig", 1 }, name + "retrig", true));
