@@ -2,8 +2,14 @@
 
 namespace
 {
+    // Tamano de diseno (100%). Todo se escala a partir de el.
     constexpr int kKnobW = 90;
     constexpr int kMargin = 20;
+    constexpr int kDesignW = 2 * kMargin + 7 * kKnobW;   // 670
+    constexpr int kDesignH = 580;
+
+    // Tamano inicial: 75% del diseno, para que quepa en pantallas pequenas
+    constexpr float kStartScale = 0.75f;
 }
 
 MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
@@ -61,7 +67,14 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     setupKnob (drift,        "Drift",   "drift", "", 2);
     setupKnob (glide,        "Glide",   "glide", " s", 2);
 
-    setSize (2 * kMargin + 7 * kKnobW, 580);
+    // Ventana redimensionable (arrastrando la esquina inferior derecha),
+    // manteniendo siempre las proporciones
+    setResizable (true, true);
+    setResizeLimits ((int) (kDesignW * 0.5f), (int) (kDesignH * 0.5f),
+                     (int) (kDesignW * 2.0f), (int) (kDesignH * 2.0f));
+    getConstrainer()->setFixedAspectRatio ((double) kDesignW / (double) kDesignH);
+
+    setSize ((int) (kDesignW * kStartScale), (int) (kDesignH * kStartScale));
 }
 
 void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
@@ -83,43 +96,62 @@ void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::St
         proc.apvts, paramID, k.slider);
 }
 
-void MiSinteEditor::layoutRow (std::initializer_list<Knob*> knobs, int labelY)
+void MiSinteEditor::scaleLabel (juce::Label& l, float s)
 {
+    l.setFont (juce::Font (juce::FontOptions (15.0f * s)));
+}
+
+void MiSinteEditor::layoutRow (std::initializer_list<Knob*> knobs, int labelY, float s)
+{
+    auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
+
     int x = kMargin;
     for (auto* k : knobs)
     {
-        k->label.setBounds (x, labelY, kKnobW, 22);
-        k->slider.setBounds (x, labelY + 25, kKnobW, 115);
+        scaleLabel (k->label, s);
+        k->label.setBounds (S (x), S (labelY), S (kKnobW), S (22));
+
+        k->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, S (80), S (18));
+        k->slider.setBounds (S (x), S (labelY + 25), S (kKnobW), S (115));
         x += kKnobW;
     }
 }
 
 void MiSinteEditor::paint (juce::Graphics& g)
 {
+    const float s = (float) getWidth() / (float) kDesignW;
+    auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
+
     g.fillAll (juce::Colour (0xff1e1e24));
 
     g.setColour (juce::Colours::white.withAlpha (0.55f));
-    g.setFont (13.0f);
-    g.drawText ("OSCILADOR Y AMPLITUD", kMargin, 8, 250, 18, juce::Justification::left);
-    g.drawText ("FILTRO", kMargin, 205, 250, 18, juce::Justification::left);
-    g.drawText ("UNISON, DRIFT Y GLIDE", kMargin, 402, 250, 18, juce::Justification::left);
+    g.setFont (13.0f * s);
+    g.drawText ("OSCILADOR Y AMPLITUD", S (kMargin), S (8), S (250), S (18), juce::Justification::left);
+    g.drawText ("FILTRO", S (kMargin), S (205), S (250), S (18), juce::Justification::left);
+    g.drawText ("UNISON, DRIFT Y GLIDE", S (kMargin), S (402), S (250), S (18), juce::Justification::left);
 
     g.setColour (juce::Colours::white.withAlpha (0.15f));
-    g.drawHorizontalLine (200, (float) kMargin, (float) (getWidth() - kMargin));
-    g.drawHorizontalLine (397, (float) kMargin, (float) (getWidth() - kMargin));
+    g.drawHorizontalLine (S (200), (float) S (kMargin), (float) (getWidth() - S (kMargin)));
+    g.drawHorizontalLine (S (397), (float) S (kMargin), (float) (getWidth() - S (kMargin)));
 }
 
 void MiSinteEditor::resized()
 {
-    waveLabel.setBounds (kMargin + 130, 8, 50, 24);
-    waveBox.setBounds (kMargin + 185, 8, 130, 24);
-    layoutRow ({ &volume, &attack, &decay, &sustain, &release }, 40);
+    const float s = (float) getWidth() / (float) kDesignW;
+    auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
-    filterLabel.setBounds (kMargin + 70, 205, 50, 24);
-    filterBox.setBounds (kMargin + 125, 205, 130, 24);
-    layoutRow ({ &cutoff, &resonance, &envAmt, &fAttack, &fDecay, &fSustain, &fRelease }, 237);
+    scaleLabel (waveLabel, s);
+    waveLabel.setBounds (S (kMargin + 130), S (8), S (50), S (24));
+    waveBox.setBounds (S (kMargin + 185), S (8), S (130), S (24));
+    layoutRow ({ &volume, &attack, &decay, &sustain, &release }, 40, s);
 
-    unisonModeLabel.setBounds (kMargin + 160, 402, 50, 24);
-    unisonModeBox.setBounds (kMargin + 215, 402, 130, 24);
-    layoutRow ({ &unisonVoices, &unisonDetune, &unisonStereo, &drift, &glide }, 434);
+    scaleLabel (filterLabel, s);
+    filterLabel.setBounds (S (kMargin + 70), S (205), S (50), S (24));
+    filterBox.setBounds (S (kMargin + 125), S (205), S (130), S (24));
+    layoutRow ({ &cutoff, &resonance, &envAmt, &fAttack, &fDecay, &fSustain, &fRelease }, 237, s);
+
+    scaleLabel (unisonModeLabel, s);
+    unisonModeLabel.setBounds (S (kMargin + 160), S (402), S (50), S (24));
+    unisonModeBox.setBounds (S (kMargin + 215), S (402), S (130), S (24));
+    layoutRow ({ &unisonVoices, &unisonDetune, &unisonStereo, &drift, &glide }, 434, s);
 }

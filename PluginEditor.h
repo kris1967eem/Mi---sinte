@@ -18,7 +18,8 @@ private:
 
     void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
                     const juce::String& suffix = {}, int decimals = -1);
-    void layoutRow (std::initializer_list<Knob*> knobs, int labelY);
+    void layoutRow (std::initializer_list<Knob*> knobs, int labelY, float s);
+    static void scaleLabel (juce::Label& l, float s);
 
     MiSinteProcessor& proc;
 
