@@ -41,7 +41,7 @@ struct SynthSound : public juce::SynthesiserSound
 class SynthVoice : public juce::SynthesiserVoice
 {
 public:
-    static constexpr int kMaxUnison = 8;
+    static constexpr int kMaxUnison = 16;
 
     explicit SynthVoice (const VoiceParams& p) : params (p) {}
 
@@ -80,6 +80,9 @@ public:
             phase[u] = (n > 1) ? (double) random.nextFloat() : 0.0;
             driftVal[u] = driftTarget[u] = random.nextFloat() * 2.0f - 1.0f;
             driftTimer[u] = 0;
+            swarmPhase[u] = (double) random.nextFloat();
+            swarmRate[u] = 0.15 + 0.6 * (double) random.nextFloat();   // Hz
+            isSub[u] = false;
             dt[u] = 0.0;
             gainL[u] = gainR[u] = 0.0f;
         }
@@ -162,7 +165,9 @@ public:
             double sumL = 0.0, sumR = 0.0;
             for (int u = 0; u < n; ++u)
             {
-                const float o = oscillator (waveType, (float) phase[u], (float) dt[u]);
+                // El oscilador sub siempre es un seno
+                const int wt = isSub[u] ? 0 : waveType;
+                const float o = oscillator (wt, (float) phase[u], (float) dt[u]);
                 sumL += (double) (o * gainL[u]);
                 sumR += (double) (o * gainR[u]);
 
@@ -180,19 +185,24 @@ public:
     }
 
 private:
-    static constexpr int kNumModes = 7;
+    // Modos: 0 Normal, 1 Octavas, 2 Quinta, 3 Mayor, 4 Menor, 5 Mayor 7,
+    //        6 Menor 7, 7 Sub, 8 Swarm
+    static constexpr int kNumModes = 9;
+    static constexpr int kModeSub = 7;
+    static constexpr int kModeSwarm = 8;
 
-    // Intervalos (en semitonos) de cada voz del unison segun el modo:
-    // Normal, Octavas, Quinta, Mayor, Menor, Mayor 7, Menor 7
+    // Intervalos (en semitonos) de cada voz del unison segun el modo
     static constexpr int kIntervals[kNumModes][kMaxUnison] =
     {
-        {  0,  0,   0,  0,   0,  0,   0,  0 },
-        {  0, 12, -12, 24,   0, 12, -12, 24 },
-        {  0,  7,  12, 19,   0,  7,  12, 19 },
-        {  0,  4,   7, 12,  16, 19,  24, 28 },
-        {  0,  3,   7, 12,  15, 19,  24, 27 },
-        {  0,  4,   7, 11,  12, 16,  19, 23 },
-        {  0,  3,   7, 10,  12, 15,  19, 22 }
+        {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 },
+        {  0, 12, -12, 24,   0, 12, -12, 24,   0, 12, -12, 24,   0, 12, -12, 24 },
+        {  0,  7,  12, 19,   0,  7,  12, 19,   0,  7,  12, 19,   0,  7,  12, 19 },
+        {  0,  4,   7, 12,  16, 19,  24, 28,   0,  4,   7, 12,  16, 19,  24, 28 },
+        {  0,  3,   7, 12,  15, 19,  24, 27,   0,  3,   7, 12,  15, 19,  24, 27 },
+        {  0,  4,   7, 11,  12, 16,  19, 23,   0,  4,   7, 11,  12, 16,  19, 23 },
+        {  0,  3,   7, 10,  12, 15,  19, 22,   0,  3,   7, 10,  12, 15,  19, 22 },
+        {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 },
+        {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 }
     };
 
     void controlUpdate (double sr, int n, int mode, double detuneCents,
@@ -213,6 +223,14 @@ private:
         const double baseHz = 440.0 * std::exp2 ((glideNote - 69.0) / 12.0);
         const double driftCoef = 16.0 / (0.5 * sr);
         const double norm = 1.4142135 / std::sqrt ((double) n);
+        const double twoPi = juce::MathConstants<double>::twoPi;
+
+        // Modo Sub: la primera voz es un seno una octava por debajo y el resto
+        // forma el stack normal. Necesita al menos 2 voces.
+        const bool subMode = (mode == kModeSub) && n >= 2;
+        const bool swarmMode = (mode == kModeSwarm);
+        const int stackStart = subMode ? 1 : 0;
+        const int stackCount = n - stackStart;
 
         for (int u = 0; u < n; ++u)
         {
@@ -224,17 +242,49 @@ private:
             }
             driftVal[u] += (driftTarget[u] - driftVal[u]) * (float) driftCoef;
 
-            // Posicion de la voz entre -1 y 1
-            const double pos = (n > 1) ? 2.0 * (double) u / (double) (n - 1) - 1.0 : 0.0;
+            isSub[u] = subMode && u == 0;
 
-            const double semis = (double) bendSemitones
-                               + (double) kIntervals[mode][u]
-                               + (pos * detuneCents + (double) driftVal[u] * driftAmt * 20.0) / 100.0;
+            double pos = 0.0;
+            double panPos = 0.0;
+            double semis = 0.0;
+
+            if (isSub[u])
+            {
+                // Sub: una octava abajo, centrado, sin detune ni drift
+                semis = (double) bendSemitones - 12.0;
+            }
+            else
+            {
+                const int idx = u - stackStart;
+                pos = (stackCount > 1) ? 2.0 * (double) idx / (double) (stackCount - 1) - 1.0 : 0.0;
+
+                double cents = 0.0;
+
+                if (swarmMode)
+                {
+                    // Swarm: reparto tipo supersaw (voces interiores mas juntas) y
+                    // modulacion lenta e individual de cada oscilador
+                    pos = 0.5 * pos + 0.5 * pos * std::abs (pos);
+
+                    swarmPhase[u] += swarmRate[u] * 16.0 / sr;
+                    if (swarmPhase[u] >= 1.0)
+                        swarmPhase[u] -= 1.0;
+
+                    const double lfo = std::sin (twoPi * swarmPhase[u]);
+                    cents += lfo * (5.0 + 0.05 * detuneCents);
+                    panPos += 0.25 * stereoAmt * std::cos (twoPi * swarmPhase[u]);
+                }
+
+                cents += pos * detuneCents + (double) driftVal[u] * driftAmt * 20.0;
+                semis = (double) bendSemitones + (double) kIntervals[mode][u] + cents / 100.0;
+                panPos += pos * stereoAmt;
+            }
 
             dt[u] = juce::jmin (0.49, baseHz * std::exp2 (semis / 12.0) / sr);
 
             // Panorama estereo con potencia constante
-            const double angle = (pos * stereoAmt + 1.0) * juce::MathConstants<double>::pi / 4.0;
+            panPos = juce::jlimit (-1.0, 1.0, panPos);
+            const double angle = (panPos + 1.0) * juce::MathConstants<double>::pi / 4.0;
             gainL[u] = (float) (std::cos (angle) * norm);
             gainR[u] = (float) (std::sin (angle) * norm);
         }
@@ -333,6 +383,9 @@ private:
     float driftVal[kMaxUnison] {};
     float driftTarget[kMaxUnison] {};
     int driftTimer[kMaxUnison] {};
+    double swarmPhase[kMaxUnison] {};
+    double swarmRate[kMaxUnison] {};
+    bool isSub[kMaxUnison] {};
 
     double targetNote = 60.0;
     double glideNote = 60.0;

@@ -49,7 +49,8 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     addAndMakeVisible (unisonModeLabel);
 
     unisonModeBox.addItemList (juce::StringArray { "Normal", "Octavas", "Quinta", "Mayor",
-                                                   "Menor", "Mayor 7", "Menor 7" }, 1);
+                                                   "Menor", "Mayor 7", "Menor 7",
+                                                   "Sub", "Swarm" }, 1);
     addAndMakeVisible (unisonModeBox);
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);

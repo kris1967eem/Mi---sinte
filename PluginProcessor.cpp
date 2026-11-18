@@ -103,11 +103,12 @@ MiSinteProcessor::createLayout()
 
     // --- Unison, drift y glide ---
     layout.add (std::make_unique<AudioParameterInt> (
-        ParameterID { "unison", 1 }, "Unison voces", 1, 8, 1));
+        ParameterID { "unison", 1 }, "Unison voces", 1, 16, 1));
 
     layout.add (std::make_unique<AudioParameterChoice> (
         ParameterID { "umode", 1 }, "Unison modo",
-        StringArray { "Normal", "Octavas", "Quinta", "Mayor", "Menor", "Mayor 7", "Menor 7" }, 0));
+        StringArray { "Normal", "Octavas", "Quinta", "Mayor", "Menor", "Mayor 7", "Menor 7",
+                      "Sub", "Swarm" }, 0));
 
     // Detune de 0 a 1200 cents (una octava). La primera mitad del recorrido
     // del knob cubre de 0 a 100 cents para tener control fino.
