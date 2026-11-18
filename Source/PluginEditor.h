@@ -1,26 +1,43 @@
 #pragma once
-
-#include <juce_audio_processors/juce_audio_processors.h>
-
 #include "PluginProcessor.h"
 
-// Interfaz provisional de la fase 1: todos los parametros en una lista, mas
-// botones para guardar y cargar presets. La interfaz final (con tu diseno)
-// vendra despues.
-class PluginEditor : public juce::AudioProcessorEditor
+class MiSinteEditor : public juce::AudioProcessorEditor
 {
 public:
-    explicit PluginEditor (PluginProcessor&);
-    ~PluginEditor() override = default;
-
+    explicit MiSinteEditor (MiSinteProcessor&);
+    void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
-    PluginProcessor& proc;
-    juce::TextButton saveButton { "Guardar preset" };
-    juce::TextButton loadButton { "Cargar preset" };
-    juce::GenericAudioProcessorEditor generic;
-    std::unique_ptr<juce::FileChooser> chooser;
+    struct Knob
+    {
+        juce::Slider slider;
+        juce::Label label;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attach;
+    };
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
+    void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
+                    const juce::String& suffix = {}, int decimals = -1);
+    void layoutRow (std::initializer_list<Knob*> knobs, int labelY, float s);
+    static void scaleLabel (juce::Label& l, float s);
+
+    MiSinteProcessor& proc;
+
+    // Oscilador y amplitud
+    Knob volume, attack, decay, sustain, release;
+    juce::ComboBox waveBox;
+    juce::Label waveLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveAttach;
+
+    // Filtro
+    Knob cutoff, resonance, envAmt, fAttack, fDecay, fSustain, fRelease;
+    juce::ComboBox filterBox;
+    juce::Label filterLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> filterAttach;
+
+    // Unison, drift y glide
+    Knob unisonVoices, unisonDetune, unisonStereo, drift, glide;
+    juce::ComboBox unisonModeBox;
+    juce::Label unisonModeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> unisonModeAttach;
 };

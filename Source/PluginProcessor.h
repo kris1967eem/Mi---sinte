@@ -1,16 +1,12 @@
 #pragma once
-
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <atomic>
 
-#include "EngineParams.h"
-#include "ParamIDs.h"
-#include "SynthEngine.h"
-
-class PluginProcessor : public juce::AudioProcessor
+class MiSinteProcessor : public juce::AudioProcessor
 {
 public:
-    PluginProcessor();
-    ~PluginProcessor() override = default;
+    MiSinteProcessor();
+    ~MiSinteProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -20,11 +16,11 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return JucePlugin_Name; }
+    const juce::String getName() const override { return "MiSinte"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override { return 15.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -35,18 +31,13 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Presets propios (archivos .mspreset)
-    bool savePresetToFile (const juce::File& file);
-    bool loadPresetFromFile (const juce::File& file);
-    static juce::File getPresetFolder();
-
     juce::AudioProcessorValueTreeState apvts;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
-    synth::EngineParams readParams() const;
+    juce::Synthesiser synth;
+    float lastGain = 0.7f;
+    std::atomic<float> lastNote { -1.0f };
 
-    synth::SynthEngine engine;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };
