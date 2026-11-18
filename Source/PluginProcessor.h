@@ -38,6 +38,7 @@ private:
     juce::Synthesiser synth;
     float lastGain = 0.7f;
     std::atomic<float> lastNote { -1.0f };
+    std::atomic<float> hostBpm { 120.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };

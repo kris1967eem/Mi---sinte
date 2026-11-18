@@ -7,6 +7,9 @@
 struct VoiceParams
 {
     std::atomic<float>* wave    = nullptr;
+    std::atomic<float>* octave  = nullptr;
+    std::atomic<float>* semi    = nullptr;
+    std::atomic<float>* fine    = nullptr;   // en cents
     std::atomic<float>* attack  = nullptr;
     std::atomic<float>* decay   = nullptr;
     std::atomic<float>* sustain = nullptr;
@@ -28,8 +31,20 @@ struct VoiceParams
     std::atomic<float>* drift      = nullptr;
     std::atomic<float>* glide      = nullptr;   // en segundos
 
+    // 3 LFOs
+    std::atomic<float>* lfoWave[3]   {};
+    std::atomic<float>* lfoRate[3]   {};   // Hz (modo libre)
+    std::atomic<float>* lfoSync[3]   {};   // 0 = libre, resto = divisiones
+    std::atomic<float>* lfoAmt[3]    {};
+    std::atomic<float>* lfoDest[3]   {};
+    std::atomic<float>* lfoRetrig[3] {};
+    std::atomic<float>* lfoFade[3]   {};
+
+    // Tempo del host (para el sync de los LFO)
+    std::atomic<float>* bpm = nullptr;
+
     // Ultima nota tocada (compartida por todas las voces, para el glide)
-    std::atomic<float>* lastNote   = nullptr;
+    std::atomic<float>* lastNote = nullptr;
 };
 
 struct SynthSound : public juce::SynthesiserSound
@@ -42,6 +57,7 @@ class SynthVoice : public juce::SynthesiserVoice
 {
 public:
     static constexpr int kMaxUnison = 16;
+    static constexpr int kNumLfos = 3;
 
     explicit SynthVoice (const VoiceParams& p) : params (p) {}
 
@@ -82,10 +98,19 @@ public:
             driftTimer[u] = 0;
             swarmPhase[u] = (double) random.nextFloat();
             swarmRate[u] = 0.15 + 0.6 * (double) random.nextFloat();   // Hz
-            isSub[u] = false;
             dt[u] = 0.0;
             gainL[u] = gainR[u] = 0.0f;
         }
+
+        // LFOs: con Retrig la fase empieza en 0 en cada nota
+        for (int l = 0; l < kNumLfos; ++l)
+        {
+            lfoPhase[l] = (params.lfoRetrig[l]->load() > 0.5f) ? 0.0 : (double) random.nextFloat();
+            lfoHold[l] = (double) random.nextFloat() * 2.0 - 1.0;
+        }
+        lfoAge = 0.0;
+        lfoPitch = lfoCut = lfoDetune = 0.0;
+        lfoVol = 1.0f;
 
         sL1 = sL2 = sR1 = sR2 = 0.0;
         coefCounter = 0;
@@ -139,6 +164,25 @@ public:
         const double driftAmt = (double) params.drift->load();
         const double glideTime = (double) params.glide->load();
 
+        // Afinacion del oscilador: octava, semitono y fine (en semitonos)
+        tuneOffset = (double) params.octave->load() * 12.0
+                   + (double) params.semi->load()
+                   + (double) params.fine->load() / 100.0;
+
+        // Configuracion de los LFO
+        const double hostBpm = (double) params.bpm->load();
+        bpm = hostBpm > 1.0 ? hostBpm : 120.0;
+        for (int l = 0; l < kNumLfos; ++l)
+        {
+            auto& c = lfo[l];
+            c.wave  = (int) params.lfoWave[l]->load();
+            c.sync  = juce::jlimit (0, kNumSyncs - 1, (int) params.lfoSync[l]->load());
+            c.dest  = (int) params.lfoDest[l]->load();
+            c.rate  = (double) params.lfoRate[l]->load();
+            c.amt   = (double) params.lfoAmt[l]->load();
+            c.fade  = (double) params.lfoFade[l]->load();
+        }
+
         for (int i = 0; i < numSamples; ++i)
         {
             const float env = adsr.getNextSample();
@@ -150,13 +194,14 @@ public:
                 break;
             }
 
-            // Pitch, glide, drift, panning y filtro se recalculan cada 16 muestras
+            // LFOs, pitch, glide, drift, panning y filtro se recalculan cada 16 muestras
             if (coefCounter-- <= 0)
             {
                 coefCounter = 15;
+                updateLfos (sr);
                 controlUpdate (sr, n, mode, detuneCents, stereoAmt, driftAmt, glideTime);
 
-                const double mod = std::pow (2.0, amount * 7.0 * (double) fenv);
+                const double mod = std::pow (2.0, amount * 7.0 * (double) fenv + lfoCut);
                 const double fc = juce::jlimit (20.0, 0.45 * sr, cutoff * mod);
                 g = std::tan (juce::MathConstants<double>::pi * fc / sr);
                 h = 1.0 / (1.0 + g * (g + k));
@@ -165,9 +210,7 @@ public:
             double sumL = 0.0, sumR = 0.0;
             for (int u = 0; u < n; ++u)
             {
-                // El oscilador sub siempre es un seno
-                const int wt = isSub[u] ? 0 : waveType;
-                const float o = oscillator (wt, (float) phase[u], (float) dt[u]);
+                const float o = oscillator (waveType, (float) phase[u], (float) dt[u]);
                 sumL += (double) (o * gainL[u]);
                 sumR += (double) (o * gainR[u]);
 
@@ -176,8 +219,9 @@ public:
                     phase[u] -= 1.0;
             }
 
-            const float outL = (float) processFilter (sumL, filterType, sL1, sL2) * env * level;
-            const float outR = (float) processFilter (sumR, filterType, sR1, sR2) * env * level;
+            const float amp = env * level * lfoVol;
+            const float outL = (float) processFilter (sumL, filterType, sL1, sL2) * amp;
+            const float outR = (float) processFilter (sumR, filterType, sR1, sR2) * amp;
 
             for (int c = 0; c < out.getNumChannels(); ++c)
                 out.addSample (c, startSample + i, c == 0 ? outL : outR);
@@ -205,6 +249,68 @@ private:
         {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 }
     };
 
+    // Sync de los LFO: duracion de un ciclo en negras (0 = modo libre).
+    // Libre, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/2T, 1/4T, 1/8T, 1/16T, 1/32T
+    static constexpr int kNumSyncs = 12;
+    static constexpr double kBeats[kNumSyncs] =
+    {
+        1.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125,
+        4.0 / 3.0, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0
+    };
+
+    // Avanza los 3 LFO y calcula su efecto sobre cada destino:
+    // 0 Ninguno, 1 Pitch, 2 Cutoff, 3 Volumen, 4 Detune
+    void updateLfos (double sr)
+    {
+        lfoAge += 16.0 / sr;
+
+        double pitch = 0.0, cut = 0.0, vol = 0.0, det = 0.0;
+
+        for (int l = 0; l < kNumLfos; ++l)
+        {
+            const auto& c = lfo[l];
+
+            double hz = c.rate;
+            if (c.sync > 0)
+                hz = (bpm / 60.0) / kBeats[c.sync];
+
+            lfoPhase[l] += hz * 16.0 / sr;
+            if (lfoPhase[l] >= 1.0)
+            {
+                lfoPhase[l] -= std::floor (lfoPhase[l]);
+                lfoHold[l] = (double) random.nextFloat() * 2.0 - 1.0;
+            }
+
+            const double ph = lfoPhase[l];
+            double v;
+            switch (c.wave)
+            {
+                case 0:  v = std::sin (juce::MathConstants<double>::twoPi * ph); break;
+                case 1:  v = 4.0 * std::abs (ph - 0.5) - 1.0; break;
+                case 2:  v = 2.0 * ph - 1.0; break;
+                case 3:  v = ph < 0.5 ? 1.0 : -1.0; break;
+                default: v = lfoHold[l]; break;   // aleatorio (sample & hold)
+            }
+
+            if (c.fade > 0.0005)
+                v *= juce::jmin (1.0, lfoAge / c.fade);
+
+            switch (c.dest)
+            {
+                case 1:  pitch += v * c.amt * std::abs (c.amt) * 12.0; break;
+                case 2:  cut   += v * c.amt * 5.0; break;
+                case 3:  vol   += v * c.amt; break;
+                case 4:  det   += v * c.amt * 300.0; break;
+                default: break;
+            }
+        }
+
+        lfoPitch = pitch;
+        lfoCut = cut;
+        lfoDetune = det;
+        lfoVol = (float) juce::jlimit (0.0, 2.0, 1.0 + vol);
+    }
+
     void controlUpdate (double sr, int n, int mode, double detuneCents,
                         double stereoAmt, double driftAmt, double glideTime)
     {
@@ -224,13 +330,8 @@ private:
         const double driftCoef = 16.0 / (0.5 * sr);
         const double norm = 1.4142135 / std::sqrt ((double) n);
         const double twoPi = juce::MathConstants<double>::twoPi;
-
-        // Modo Sub: la primera voz es un seno una octava por debajo y el resto
-        // forma el stack normal. Necesita al menos 2 voces.
-        const bool subMode = (mode == kModeSub) && n >= 2;
+        const double detuneEff = juce::jmax (0.0, detuneCents + lfoDetune);
         const bool swarmMode = (mode == kModeSwarm);
-        const int stackStart = subMode ? 1 : 0;
-        const int stackCount = n - stackStart;
 
         for (int u = 0; u < n; ++u)
         {
@@ -242,43 +343,36 @@ private:
             }
             driftVal[u] += (driftTarget[u] - driftVal[u]) * (float) driftCoef;
 
-            isSub[u] = subMode && u == 0;
-
-            double pos = 0.0;
+            // Posicion de la voz entre -1 y 1
+            double pos = (n > 1) ? 2.0 * (double) u / (double) (n - 1) - 1.0 : 0.0;
             double panPos = 0.0;
-            double semis = 0.0;
+            double cents = 0.0;
 
-            if (isSub[u])
+            if (swarmMode)
             {
-                // Sub: una octava abajo, centrado, sin detune ni drift
-                semis = (double) bendSemitones - 12.0;
+                // Swarm: reparto tipo supersaw (voces interiores mas juntas) y
+                // modulacion lenta e individual de cada oscilador
+                pos = 0.5 * pos + 0.5 * pos * std::abs (pos);
+
+                swarmPhase[u] += swarmRate[u] * 16.0 / sr;
+                if (swarmPhase[u] >= 1.0)
+                    swarmPhase[u] -= 1.0;
+
+                cents += std::sin (twoPi * swarmPhase[u]) * (5.0 + 0.05 * detuneEff);
+                panPos += 0.25 * stereoAmt * std::cos (twoPi * swarmPhase[u]);
             }
-            else
-            {
-                const int idx = u - stackStart;
-                pos = (stackCount > 1) ? 2.0 * (double) idx / (double) (stackCount - 1) - 1.0 : 0.0;
 
-                double cents = 0.0;
+            cents += pos * detuneEff + (double) driftVal[u] * driftAmt * 20.0;
+            panPos += pos * stereoAmt;
 
-                if (swarmMode)
-                {
-                    // Swarm: reparto tipo supersaw (voces interiores mas juntas) y
-                    // modulacion lenta e individual de cada oscilador
-                    pos = 0.5 * pos + 0.5 * pos * std::abs (pos);
+            // Intervalo de la voz. En modo Sub, una de cada tres voces baja una
+            // octava (con la misma onda) y todas se desafinan con los mismos controles.
+            int interval = kIntervals[mode][u];
+            if (mode == kModeSub && n >= 2 && (u % 3) == 1)
+                interval = -12;
 
-                    swarmPhase[u] += swarmRate[u] * 16.0 / sr;
-                    if (swarmPhase[u] >= 1.0)
-                        swarmPhase[u] -= 1.0;
-
-                    const double lfo = std::sin (twoPi * swarmPhase[u]);
-                    cents += lfo * (5.0 + 0.05 * detuneCents);
-                    panPos += 0.25 * stereoAmt * std::cos (twoPi * swarmPhase[u]);
-                }
-
-                cents += pos * detuneCents + (double) driftVal[u] * driftAmt * 20.0;
-                semis = (double) bendSemitones + (double) kIntervals[mode][u] + cents / 100.0;
-                panPos += pos * stereoAmt;
-            }
+            const double semis = (double) bendSemitones + tuneOffset + lfoPitch
+                               + (double) interval + cents / 100.0;
 
             dt[u] = juce::jmin (0.49, baseHz * std::exp2 (semis / 12.0) / sr);
 
@@ -370,6 +464,12 @@ private:
                                     params.fRelease->load() });
     }
 
+    struct LfoCfg
+    {
+        int wave = 0, sync = 0, dest = 0;
+        double rate = 1.0, amt = 0.0, fade = 0.0;
+    };
+
     VoiceParams params;
     juce::ADSR adsr;
     juce::ADSR filterAdsr;
@@ -385,8 +485,17 @@ private:
     int driftTimer[kMaxUnison] {};
     double swarmPhase[kMaxUnison] {};
     double swarmRate[kMaxUnison] {};
-    bool isSub[kMaxUnison] {};
 
+    // LFOs
+    LfoCfg lfo[kNumLfos];
+    double lfoPhase[kNumLfos] {};
+    double lfoHold[kNumLfos] {};
+    double lfoAge = 0.0;
+    double lfoPitch = 0.0, lfoCut = 0.0, lfoDetune = 0.0;
+    float lfoVol = 1.0f;
+    double bpm = 120.0;
+
+    double tuneOffset = 0.0;
     double targetNote = 60.0;
     double glideNote = 60.0;
     float bendSemitones = 0.0f;

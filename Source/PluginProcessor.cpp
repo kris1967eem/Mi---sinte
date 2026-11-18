@@ -11,6 +11,9 @@ MiSinteProcessor::MiSinteProcessor()
 {
     VoiceParams vp;
     vp.wave       = apvts.getRawParameterValue ("wave");
+    vp.octave     = apvts.getRawParameterValue ("octave");
+    vp.semi       = apvts.getRawParameterValue ("semi");
+    vp.fine       = apvts.getRawParameterValue ("fine");
     vp.attack     = apvts.getRawParameterValue ("attack");
     vp.decay      = apvts.getRawParameterValue ("decay");
     vp.sustain    = apvts.getRawParameterValue ("sustain");
@@ -29,6 +32,20 @@ MiSinteProcessor::MiSinteProcessor()
     vp.stereo     = apvts.getRawParameterValue ("ustereo");
     vp.drift      = apvts.getRawParameterValue ("drift");
     vp.glide      = apvts.getRawParameterValue ("glide");
+
+    for (int i = 0; i < 3; ++i)
+    {
+        const juce::String n (i + 1);
+        vp.lfoWave[i]   = apvts.getRawParameterValue ("lfo" + n + "wave");
+        vp.lfoRate[i]   = apvts.getRawParameterValue ("lfo" + n + "rate");
+        vp.lfoSync[i]   = apvts.getRawParameterValue ("lfo" + n + "sync");
+        vp.lfoAmt[i]    = apvts.getRawParameterValue ("lfo" + n + "amt");
+        vp.lfoDest[i]   = apvts.getRawParameterValue ("lfo" + n + "dest");
+        vp.lfoRetrig[i] = apvts.getRawParameterValue ("lfo" + n + "retrig");
+        vp.lfoFade[i]   = apvts.getRawParameterValue ("lfo" + n + "fade");
+    }
+
+    vp.bpm        = &hostBpm;
     vp.lastNote   = &lastNote;
 
     for (int i = 0; i < kNumVoices; ++i)
@@ -56,6 +73,16 @@ MiSinteProcessor::createLayout()
     layout.add (std::make_unique<AudioParameterChoice> (
         ParameterID { "wave", 1 }, "Onda",
         StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada" }, 2));
+
+    layout.add (std::make_unique<AudioParameterInt> (
+        ParameterID { "octave", 1 }, "Octava", -4, 4, 0));
+
+    layout.add (std::make_unique<AudioParameterInt> (
+        ParameterID { "semi", 1 }, "Semitono", -12, 12, 0));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "fine", 1 }, "Fine",
+        NormalisableRange<float> (-100.0f, 100.0f), 0.0f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "attack", 1 }, "Ataque", timeRange (10.0f), 0.01f));
@@ -129,6 +156,42 @@ MiSinteProcessor::createLayout()
         ParameterID { "glide", 1 }, "Glide",
         NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
 
+    // --- 3 LFOs ---
+    for (int i = 1; i <= 3; ++i)
+    {
+        const String n (i);
+        const String name = "LFO " + n + " ";
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { "lfo" + n + "wave", 1 }, name + "onda",
+            StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada", "Aleatorio" }, 0));
+
+        NormalisableRange<float> rateRange (0.01f, 30.0f, 0.0f);
+        rateRange.setSkewForCentre (2.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "lfo" + n + "rate", 1 }, name + "rate", rateRange, 2.0f));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { "lfo" + n + "sync", 1 }, name + "sync",
+            StringArray { "Libre", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
+                          "1/2T", "1/4T", "1/8T", "1/16T", "1/32T" }, 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "lfo" + n + "amt", 1 }, name + "cantidad",
+            NormalisableRange<float> (-1.0f, 1.0f), 0.5f));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { "lfo" + n + "dest", 1 }, name + "destino",
+            StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune" }, 0));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { "lfo" + n + "retrig", 1 }, name + "retrig", true));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "lfo" + n + "fade", 1 }, name + "fade in",
+            NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
+    }
+
     return layout;
 }
 
@@ -148,6 +211,12 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
+
+    // Tempo del host, para los LFO sincronizados
+    if (auto* playHead = getPlayHead())
+        if (auto position = playHead->getPosition())
+            if (auto bpm = position->getBpm())
+                hostBpm.store ((float) *bpm);
 
     synth.renderNextBlock (buffer, midi, 0, buffer.getNumSamples());
 
