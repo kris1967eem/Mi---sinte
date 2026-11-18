@@ -194,8 +194,8 @@ MiSinteProcessor::createLayout()
 
         layout.add (std::make_unique<AudioParameterChoice> (
             ParameterID { "lfo" + n + "sync", 1 }, name + "sync",
-            StringArray { "Libre", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
-                          "1/2T", "1/4T", "1/8T", "1/16T", "1/32T" }, 0));
+            StringArray { "Libre", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
+                          "8/1T", "4/1T", "2/1T", "1/1T", "1/2T", "1/4T", "1/8T", "1/16T", "1/32T" }, 0));
 
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { "lfo" + n + "amt", 1 }, name + "cantidad",

@@ -262,12 +262,15 @@ private:
     };
 
     // Sync de los LFO: duracion de un ciclo en negras (0 = modo libre).
-    // Libre, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/2T, 1/4T, 1/8T, 1/16T, 1/32T
-    static constexpr int kNumSyncs = 12;
+    // Libre, 8/1, 4/1, 2/1, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32,
+    // y los mismos en tresillo: 8/1T, 4/1T, 2/1T, 1/1T, 1/2T, 1/4T, 1/8T, 1/16T, 1/32T
+    static constexpr int kNumSyncs = 19;
     static constexpr double kBeats[kNumSyncs] =
     {
-        1.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125,
-        4.0 / 3.0, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0
+        1.0,
+        32.0, 16.0, 8.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125,
+        64.0 / 3.0, 32.0 / 3.0, 16.0 / 3.0, 8.0 / 3.0, 4.0 / 3.0,
+        2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0
     };
 
     // Lee la onda personalizada de un LFO (tabla de un ciclo, con interpolacion)

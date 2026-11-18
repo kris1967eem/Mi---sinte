@@ -35,6 +35,7 @@ private:
     void layoutRow (std::initializer_list<Knob*> knobs, int labelY, float s);
     void layoutLfo (LfoUI& u, int block, float s);
     void showPage (int page);
+    void updateSwarmKnob();
     static void scaleLabel (juce::Label& l, float s);
 
     MiSinteProcessor& proc;

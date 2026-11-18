@@ -80,13 +80,15 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     addToPage (0, unisonModeBox);
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);
+    // El knob Rate solo aparece cuando el modo de unison es Swarm
+    unisonModeBox.onChange = [this] { updateSwarmKnob(); };
 
     setupKnob (unisonVoices, "Voces",      "unison", "", 0);
     setupKnob (unisonDetune, "Detune",     "udetune", " ct", 0);
     setupKnob (unisonStereo, "Estereo",    "ustereo", "", 2);
     setupKnob (drift,        "Drift",      "drift", "", 2);
     setupKnob (glide,        "Glide",      "glide", " s", 2);
-    setupKnob (swarmRate,    "Swarm rate", "swarmrate", " Hz", 2);
+    setupKnob (swarmRate,    "Rate",       "swarmrate", " Hz", 2);
 
     // --- LFOs ---
     for (int i = 0; i < 3; ++i)
@@ -119,7 +121,16 @@ void MiSinteEditor::showPage (int page)
 
     pageSoundBtn.setToggleState (page == 0, juce::dontSendNotification);
     pageModBtn.setToggleState (page == 1, juce::dontSendNotification);
+    updateSwarmKnob();
     repaint();
+}
+
+void MiSinteEditor::updateSwarmKnob()
+{
+    // Swarm es el elemento 9 de la lista de modos (ids empiezan en 1)
+    const bool show = (currentPage == 0) && (unisonModeBox.getSelectedId() == 9);
+    swarmRate.slider.setVisible (show);
+    swarmRate.label.setVisible (show);
 }
 
 void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
@@ -161,8 +172,10 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
                                             "Aleatorio", "Personal" }, 1);
     u.dest.addItemList (juce::StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen",
                                             "Detune", "PW" }, 1);
-    u.sync.addItemList (juce::StringArray { "Libre", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
-                                            "1/2T", "1/4T", "1/8T", "1/16T", "1/32T" }, 1);
+    u.sync.addItemList (juce::StringArray { "Libre", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4",
+                                            "1/8", "1/16", "1/32",
+                                            "8/1T", "4/1T", "2/1T", "1/1T", "1/2T", "1/4T",
+                                            "1/8T", "1/16T", "1/32T" }, 1);
     addToPage (1, u.wave);
     addToPage (1, u.dest);
     addToPage (1, u.sync);
