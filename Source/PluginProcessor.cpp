@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "SynthVoice.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 static constexpr int kNumVoices = 16;
 
@@ -9,11 +10,18 @@ MiSinteProcessor::MiSinteProcessor()
                       juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "STATE", createLayout())
 {
+    // Las ondas personalizadas de los LFO empiezan siendo un seno
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < kLfoTableSize; ++j)
+            lfoTables[i][(size_t) j].store (std::sin (juce::MathConstants<float>::twoPi
+                                                      * (float) j / (float) kLfoTableSize));
+
     VoiceParams vp;
     vp.wave       = apvts.getRawParameterValue ("wave");
     vp.octave     = apvts.getRawParameterValue ("octave");
     vp.semi       = apvts.getRawParameterValue ("semi");
     vp.fine       = apvts.getRawParameterValue ("fine");
+    vp.pw         = apvts.getRawParameterValue ("pw");
     vp.attack     = apvts.getRawParameterValue ("attack");
     vp.decay      = apvts.getRawParameterValue ("decay");
     vp.sustain    = apvts.getRawParameterValue ("sustain");
@@ -32,6 +40,7 @@ MiSinteProcessor::MiSinteProcessor()
     vp.stereo     = apvts.getRawParameterValue ("ustereo");
     vp.drift      = apvts.getRawParameterValue ("drift");
     vp.glide      = apvts.getRawParameterValue ("glide");
+    vp.swarmRate  = apvts.getRawParameterValue ("swarmrate");
 
     for (int i = 0; i < 3; ++i)
     {
@@ -43,6 +52,8 @@ MiSinteProcessor::MiSinteProcessor()
         vp.lfoDest[i]   = apvts.getRawParameterValue ("lfo" + n + "dest");
         vp.lfoRetrig[i] = apvts.getRawParameterValue ("lfo" + n + "retrig");
         vp.lfoFade[i]   = apvts.getRawParameterValue ("lfo" + n + "fade");
+        vp.lfoPhaseStart[i] = apvts.getRawParameterValue ("lfo" + n + "phase");
+        vp.lfoTable[i]  = lfoTables[i].data();
     }
 
     vp.bpm        = &hostBpm;
@@ -83,6 +94,10 @@ MiSinteProcessor::createLayout()
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "fine", 1 }, "Fine",
         NormalisableRange<float> (-100.0f, 100.0f), 0.0f));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "pw", 1 }, "PW",
+        NormalisableRange<float> (0.05f, 0.95f), 0.5f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "attack", 1 }, "Ataque", timeRange (10.0f), 0.01f));
@@ -156,6 +171,12 @@ MiSinteProcessor::createLayout()
         ParameterID { "glide", 1 }, "Glide",
         NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
 
+    // Velocidad de la modulacion individual del modo Swarm
+    NormalisableRange<float> swarmRange (0.02f, 10.0f, 0.0f);
+    swarmRange.setSkewForCentre (0.5f);
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "swarmrate", 1 }, "Swarm rate", swarmRange, 0.45f));
+
     // --- 3 LFOs ---
     for (int i = 1; i <= 3; ++i)
     {
@@ -164,7 +185,7 @@ MiSinteProcessor::createLayout()
 
         layout.add (std::make_unique<AudioParameterChoice> (
             ParameterID { "lfo" + n + "wave", 1 }, name + "onda",
-            StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada", "Aleatorio" }, 0));
+            StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada", "Aleatorio", "Personal" }, 0));
 
         NormalisableRange<float> rateRange (0.01f, 30.0f, 0.0f);
         rateRange.setSkewForCentre (2.0f);
@@ -182,10 +203,16 @@ MiSinteProcessor::createLayout()
 
         layout.add (std::make_unique<AudioParameterChoice> (
             ParameterID { "lfo" + n + "dest", 1 }, name + "destino",
-            StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune" }, 0));
+            StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune", "PW" }, 0));
 
         layout.add (std::make_unique<AudioParameterBool> (
             ParameterID { "lfo" + n + "retrig", 1 }, name + "retrig", true));
+
+        // Fase inicial (en grados) cuando Retrig esta activado. 90 = el seno
+        // empieza en su maximo, asi el LFO actua desde el primer instante.
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "lfo" + n + "phase", 1 }, name + "fase",
+            NormalisableRange<float> (0.0f, 360.0f), 90.0f));
 
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { "lfo" + n + "fade", 1 }, name + "fade in",
@@ -233,6 +260,24 @@ juce::AudioProcessorEditor* MiSinteProcessor::createEditor()
 void MiSinteProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+
+    // Guarda las ondas personalizadas cargadas en los LFO
+    for (int i = 0; i < 3; ++i)
+    {
+        if (! lfoWaveLoaded[i])
+            continue;
+
+        std::vector<float> table ((size_t) kLfoTableSize);
+        for (int j = 0; j < kLfoTableSize; ++j)
+            table[(size_t) j] = lfoTables[i][(size_t) j].load();
+
+        const juce::MemoryBlock mb (table.data(), sizeof (float) * (size_t) kLfoTableSize);
+        state.setProperty (juce::Identifier ("lfoWave" + juce::String (i + 1)),
+                           mb.toBase64Encoding(), nullptr);
+        state.setProperty (juce::Identifier ("lfoWaveName" + juce::String (i + 1)),
+                           lfoWaveName[i], nullptr);
+    }
+
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -241,7 +286,91 @@ void MiSinteProcessor::setStateInformation (const void* data, int size)
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, size));
     if (xml != nullptr && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        const auto tree = juce::ValueTree::fromXml (*xml);
+        apvts.replaceState (tree);
+
+        // Recupera las ondas personalizadas de los LFO
+        for (int i = 0; i < 3; ++i)
+        {
+            const juce::Identifier id ("lfoWave" + juce::String (i + 1));
+            if (! tree.hasProperty (id))
+                continue;
+
+            juce::MemoryBlock mb;
+            if (mb.fromBase64Encoding (tree.getProperty (id).toString())
+                && mb.getSize() == sizeof (float) * (size_t) kLfoTableSize)
+            {
+                const auto* f = static_cast<const float*> (mb.getData());
+                for (int j = 0; j < kLfoTableSize; ++j)
+                    lfoTables[i][(size_t) j].store (f[j]);
+
+                lfoWaveName[i] = tree.getProperty (juce::Identifier ("lfoWaveName" + juce::String (i + 1))).toString();
+                lfoWaveLoaded[i] = true;
+            }
+        }
+    }
+}
+
+juce::String MiSinteProcessor::getLfoWaveName (int index) const
+{
+    return (index >= 0 && index < 3 && lfoWaveLoaded[index]) ? lfoWaveName[index] : juce::String();
+}
+
+// Carga un archivo de audio como onda de un ciclo para un LFO: el archivo completo
+// se interpreta como un solo ciclo y se remuestrea a kLfoTableSize puntos.
+bool MiSinteProcessor::loadLfoWave (int index, const juce::File& file)
+{
+    if (index < 0 || index >= 3)
+        return false;
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+    if (reader == nullptr || reader->lengthInSamples < 2 || reader->numChannels < 1)
+        return false;
+
+    const int len = (int) juce::jmin<juce::int64> (reader->lengthInSamples, 1 << 20);
+    const int numCh = (int) reader->numChannels;
+
+    juce::AudioBuffer<float> buf (numCh, len);
+    if (! reader->read (&buf, 0, len, 0, true, numCh > 1))
+        return false;
+
+    // Mezcla a mono
+    std::vector<float> mono ((size_t) len, 0.0f);
+    for (int c = 0; c < numCh; ++c)
+    {
+        const float* src = buf.getReadPointer (c);
+        for (int i = 0; i < len; ++i)
+            mono[(size_t) i] += src[i] / (float) numCh;
+    }
+
+    // Remuestreo con interpolacion lineal (el ciclo se cierra sobre si mismo)
+    std::vector<float> table ((size_t) kLfoTableSize);
+    for (int i = 0; i < kLfoTableSize; ++i)
+    {
+        const double pos = (double) i * (double) len / (double) kLfoTableSize;
+        const int i0 = (int) pos;
+        const int i1 = (i0 + 1) % len;
+        const float fr = (float) (pos - (double) i0);
+        table[(size_t) i] = mono[(size_t) i0] + (mono[(size_t) i1] - mono[(size_t) i0]) * fr;
+    }
+
+    // Normaliza al pico (rango -1 a 1)
+    float peak = 0.0f;
+    for (auto v : table)
+        peak = juce::jmax (peak, std::abs (v));
+    if (peak < 1.0e-6f)
+        return false;
+
+    for (int i = 0; i < kLfoTableSize; ++i)
+        lfoTables[index][(size_t) i].store (table[(size_t) i] / peak);
+
+    lfoWaveName[index] = file.getFileNameWithoutExtension();
+    lfoWaveLoaded[index] = true;
+    return true;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

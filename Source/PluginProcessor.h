@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
 #include <atomic>
+#include "SynthVoice.h"
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -31,6 +33,10 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Ondas personalizadas de los LFO (un ciclo cargado desde un archivo de audio)
+    bool loadLfoWave (int index, const juce::File& file);
+    juce::String getLfoWaveName (int index) const;
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -39,6 +45,10 @@ private:
     float lastGain = 0.7f;
     std::atomic<float> lastNote { -1.0f };
     std::atomic<float> hostBpm { 120.0f };
+
+    std::array<std::atomic<float>, kLfoTableSize> lfoTables[3];
+    juce::String lfoWaveName[3];
+    bool lfoWaveLoaded[3] { false, false, false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };

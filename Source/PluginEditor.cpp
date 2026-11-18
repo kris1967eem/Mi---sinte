@@ -5,10 +5,10 @@ namespace
     // Tamano de diseno (100%). Todo se escala a partir de el.
     constexpr int kKnobW = 90;
     constexpr int kMargin = 20;
-    constexpr int kDesignW = 2 * kMargin + 8 * kKnobW;   // 760
+    constexpr int kDesignW = 2 * kMargin + 9 * kKnobW;   // 850
     constexpr int kDesignH = 620;
     constexpr int kTop = 36;           // altura de la barra de paginas
-    constexpr int kLfoBlockH = 135;
+    constexpr int kLfoBlockH = 150;
 
     // Tamano inicial: 75% del diseno, para que quepa en pantallas pequenas
     constexpr float kStartScale = 0.75f;
@@ -41,14 +41,15 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     waveAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "wave", waveBox);
 
-    setupKnob (octave,  "Octava",  "octave", "", 0);
-    setupKnob (semi,    "Semi",    "semi", "", 0);
-    setupKnob (fine,    "Fine",    "fine", " ct", 0);
-    setupKnob (attack,  "Ataque",  "attack",  " s");
-    setupKnob (decay,   "Decay",   "decay",   " s");
-    setupKnob (sustain, "Sustain", "sustain");
-    setupKnob (release, "Release", "release", " s");
-    setupKnob (volume,  "Volumen", "volume");
+    setupKnob (octave,     "Octava",  "octave", "", 0);
+    setupKnob (semi,       "Semi",    "semi", "", 0);
+    setupKnob (fine,       "Fine",    "fine", " ct", 0);
+    setupKnob (pulseWidth, "PW",      "pw", "", 2);
+    setupKnob (attack,     "Ataque",  "attack",  " s");
+    setupKnob (decay,      "Decay",   "decay",   " s");
+    setupKnob (sustain,    "Sustain", "sustain");
+    setupKnob (release,    "Release", "release", " s");
+    setupKnob (volume,     "Volumen", "volume");
 
     // --- Filtro ---
     filterLabel.setText ("Tipo", juce::dontSendNotification);
@@ -80,11 +81,12 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);
 
-    setupKnob (unisonVoices, "Voces",   "unison", "", 0);
-    setupKnob (unisonDetune, "Detune",  "udetune", " ct", 0);
-    setupKnob (unisonStereo, "Estereo", "ustereo", "", 2);
-    setupKnob (drift,        "Drift",   "drift", "", 2);
-    setupKnob (glide,        "Glide",   "glide", " s", 2);
+    setupKnob (unisonVoices, "Voces",      "unison", "", 0);
+    setupKnob (unisonDetune, "Detune",     "udetune", " ct", 0);
+    setupKnob (unisonStereo, "Estereo",    "ustereo", "", 2);
+    setupKnob (drift,        "Drift",      "drift", "", 2);
+    setupKnob (glide,        "Glide",      "glide", " s", 2);
+    setupKnob (swarmRate,    "Swarm rate", "swarmrate", " Hz", 2);
 
     // --- LFOs ---
     for (int i = 0; i < 3; ++i)
@@ -155,8 +157,10 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
         addToPage (1, *l);
     }
 
-    u.wave.addItemList (juce::StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada", "Aleatorio" }, 1);
-    u.dest.addItemList (juce::StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen", "Detune" }, 1);
+    u.wave.addItemList (juce::StringArray { "Seno", "Triangulo", "Sierra", "Cuadrada",
+                                            "Aleatorio", "Personal" }, 1);
+    u.dest.addItemList (juce::StringArray { "Ninguno", "Pitch", "Cutoff", "Volumen",
+                                            "Detune", "PW" }, 1);
     u.sync.addItemList (juce::StringArray { "Libre", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
                                             "1/2T", "1/4T", "1/8T", "1/16T", "1/32T" }, 1);
     addToPage (1, u.wave);
@@ -165,6 +169,16 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
 
     u.retrig.setButtonText ("Retrig");
     addToPage (1, u.retrig);
+
+    u.loadBtn.setButtonText ("Cargar...");
+    u.loadBtn.onClick = [this, index] { chooseLfoWave (index); };
+    addToPage (1, u.loadBtn);
+
+    const auto loaded = proc.getLfoWaveName (index);
+    u.waveName.setText (loaded.isNotEmpty() ? "Personal: " + loaded : "Personal: sin cargar",
+                        juce::dontSendNotification);
+    u.waveName.setJustificationType (juce::Justification::left);
+    addToPage (1, u.waveName);
 
     u.waveA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "lfo" + n + "wave", u.wave);
@@ -175,9 +189,43 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     u.retrigA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         proc.apvts, "lfo" + n + "retrig", u.retrig);
 
-    setupKnob (u.rate, "Rate",     "lfo" + n + "rate", " Hz", 2, 1);
-    setupKnob (u.amt,  "Cantidad", "lfo" + n + "amt",  "", 2, 1);
-    setupKnob (u.fade, "Fade in",  "lfo" + n + "fade", " s", 2, 1);
+    setupKnob (u.rate,  "Rate",     "lfo" + n + "rate",  " Hz", 2, 1);
+    setupKnob (u.amt,   "Cantidad", "lfo" + n + "amt",   "", 2, 1);
+    setupKnob (u.fade,  "Fade in",  "lfo" + n + "fade",  " s", 2, 1);
+    setupKnob (u.phase, "Fase",     "lfo" + n + "phase", " deg", 0, 1);
+}
+
+void MiSinteEditor::chooseLfoWave (int index)
+{
+    chooser = std::make_unique<juce::FileChooser> (
+        "Elige una forma de onda de un ciclo (WAV, AIFF o FLAC)",
+        juce::File(), "*.wav;*.aif;*.aiff;*.flac");
+
+    juce::Component::SafePointer<MiSinteEditor> safe (this);
+
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles,
+                          [safe, index] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr)
+            return;
+
+        const auto file = fc.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        auto& ui = safe->lfoUI[index];
+        if (safe->proc.loadLfoWave (index, file))
+        {
+            ui.waveName.setText ("Personal: " + safe->proc.getLfoWaveName (index),
+                                 juce::dontSendNotification);
+            ui.wave.setSelectedId (6, juce::sendNotificationSync);   // elige "Personal"
+        }
+        else
+        {
+            ui.waveName.setText ("No se pudo cargar el archivo", juce::dontSendNotification);
+        }
+    });
 }
 
 void MiSinteEditor::scaleLabel (juce::Label& l, float s)
@@ -213,21 +261,24 @@ void MiSinteEditor::layoutLfo (LfoUI& u, int block, float s)
     scaleLabel (u.waveL, s);
     scaleLabel (u.destL, s);
     scaleLabel (u.syncL, s);
+    u.waveName.setFont (juce::Font (juce::FontOptions (12.0f * s)));
 
     u.waveL.setBounds (S (kMargin), S (y + 30), S (62), S (24));
-    u.wave.setBounds (S (kMargin + 68), S (y + 30), S (130), S (24));
+    u.wave.setBounds (S (kMargin + 68), S (y + 30), S (100), S (24));
+    u.loadBtn.setBounds (S (kMargin + 172), S (y + 30), S (70), S (24));
     u.destL.setBounds (S (kMargin), S (y + 60), S (62), S (24));
     u.dest.setBounds (S (kMargin + 68), S (y + 60), S (130), S (24));
     u.syncL.setBounds (S (kMargin), S (y + 90), S (62), S (24));
     u.sync.setBounds (S (kMargin + 68), S (y + 90), S (130), S (24));
+    u.waveName.setBounds (S (kMargin), S (y + 120), S (230), S (20));
 
-    int x = 250;
-    for (auto* k : { &u.rate, &u.amt, &u.fade })
+    int x = 270;
+    for (auto* k : { &u.rate, &u.amt, &u.fade, &u.phase })
     {
         scaleLabel (k->label, s);
         k->label.setBounds (S (x), S (y + 4), S (kKnobW), S (22));
         k->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, S (80), S (18));
-        k->slider.setBounds (S (x), S (y + 27), S (kKnobW), S (100));
+        k->slider.setBounds (S (x), S (y + 27), S (kKnobW), S (105));
         x += kKnobW + 10;
     }
 }
@@ -277,7 +328,7 @@ void MiSinteEditor::resized()
     scaleLabel (waveLabel, s);
     waveLabel.setBounds (S (kMargin + 190), S (kTop + 8), S (50), S (24));
     waveBox.setBounds (S (kMargin + 245), S (kTop + 8), S (130), S (24));
-    layoutRow ({ &octave, &semi, &fine, &attack, &decay, &sustain, &release, &volume },
+    layoutRow ({ &octave, &semi, &fine, &pulseWidth, &attack, &decay, &sustain, &release, &volume },
                kTop + 40, s);
 
     scaleLabel (filterLabel, s);
@@ -289,7 +340,7 @@ void MiSinteEditor::resized()
     scaleLabel (unisonModeLabel, s);
     unisonModeLabel.setBounds (S (kMargin + 190), S (kTop + 402), S (50), S (24));
     unisonModeBox.setBounds (S (kMargin + 245), S (kTop + 402), S (130), S (24));
-    layoutRow ({ &unisonVoices, &unisonDetune, &unisonStereo, &drift, &glide },
+    layoutRow ({ &unisonVoices, &unisonDetune, &unisonStereo, &drift, &glide, &swarmRate },
                kTop + 434, s);
 
     // Pagina de modulacion

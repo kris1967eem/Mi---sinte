@@ -3,6 +3,9 @@
 #include <atomic>
 #include <cmath>
 
+// Tamano de las tablas de onda personalizadas de los LFO (potencia de 2)
+constexpr int kLfoTableSize = 2048;
+
 // Punteros a los parametros (los lee la voz en cada bloque de audio)
 struct VoiceParams
 {
@@ -10,6 +13,7 @@ struct VoiceParams
     std::atomic<float>* octave  = nullptr;
     std::atomic<float>* semi    = nullptr;
     std::atomic<float>* fine    = nullptr;   // en cents
+    std::atomic<float>* pw      = nullptr;   // ancho de pulso de la onda cuadrada
     std::atomic<float>* attack  = nullptr;
     std::atomic<float>* decay   = nullptr;
     std::atomic<float>* sustain = nullptr;
@@ -30,6 +34,7 @@ struct VoiceParams
     std::atomic<float>* stereo     = nullptr;
     std::atomic<float>* drift      = nullptr;
     std::atomic<float>* glide      = nullptr;   // en segundos
+    std::atomic<float>* swarmRate  = nullptr;   // velocidad de modulacion del modo Swarm (Hz)
 
     // 3 LFOs
     std::atomic<float>* lfoWave[3]   {};
@@ -39,6 +44,8 @@ struct VoiceParams
     std::atomic<float>* lfoDest[3]   {};
     std::atomic<float>* lfoRetrig[3] {};
     std::atomic<float>* lfoFade[3]   {};
+    std::atomic<float>* lfoPhaseStart[3] {};   // fase inicial con Retrig (grados)
+    const std::atomic<float>* lfoTable[3] {};  // onda personalizada de cada LFO
 
     // Tempo del host (para el sync de los LFO)
     std::atomic<float>* bpm = nullptr;
@@ -97,7 +104,7 @@ public:
             driftVal[u] = driftTarget[u] = random.nextFloat() * 2.0f - 1.0f;
             driftTimer[u] = 0;
             swarmPhase[u] = (double) random.nextFloat();
-            swarmRate[u] = 0.15 + 0.6 * (double) random.nextFloat();   // Hz
+            swarmRate[u] = 0.6 + 0.8 * (double) random.nextFloat();   // factor individual de velocidad
             dt[u] = 0.0;
             gainL[u] = gainR[u] = 0.0f;
         }
@@ -105,11 +112,13 @@ public:
         // LFOs: con Retrig la fase empieza en 0 en cada nota
         for (int l = 0; l < kNumLfos; ++l)
         {
-            lfoPhase[l] = (params.lfoRetrig[l]->load() > 0.5f) ? 0.0 : (double) random.nextFloat();
+            lfoPhase[l] = (params.lfoRetrig[l]->load() > 0.5f)
+                              ? (double) params.lfoPhaseStart[l]->load() / 360.0
+                              : (double) random.nextFloat();
             lfoHold[l] = (double) random.nextFloat() * 2.0 - 1.0;
         }
         lfoAge = 0.0;
-        lfoPitch = lfoCut = lfoDetune = 0.0;
+        lfoPitch = lfoCut = lfoDetune = lfoPw = 0.0;
         lfoVol = 1.0f;
 
         sL1 = sL2 = sR1 = sR2 = 0.0;
@@ -163,6 +172,8 @@ public:
         const double stereoAmt = (double) params.stereo->load();
         const double driftAmt = (double) params.drift->load();
         const double glideTime = (double) params.glide->load();
+        const double pwBase = (double) params.pw->load();
+        swarmHz = (double) params.swarmRate->load();
 
         // Afinacion del oscilador: octava, semitono y fine (en semitonos)
         tuneOffset = (double) params.octave->load() * 12.0
@@ -199,6 +210,7 @@ public:
             {
                 coefCounter = 15;
                 updateLfos (sr);
+                pwNow = juce::jlimit (0.05, 0.95, pwBase + lfoPw);
                 controlUpdate (sr, n, mode, detuneCents, stereoAmt, driftAmt, glideTime);
 
                 const double mod = std::pow (2.0, amount * 7.0 * (double) fenv + lfoCut);
@@ -210,7 +222,7 @@ public:
             double sumL = 0.0, sumR = 0.0;
             for (int u = 0; u < n; ++u)
             {
-                const float o = oscillator (waveType, (float) phase[u], (float) dt[u]);
+                const float o = oscillator (waveType, (float) phase[u], (float) dt[u], (float) pwNow);
                 sumL += (double) (o * gainL[u]);
                 sumR += (double) (o * gainR[u]);
 
@@ -258,13 +270,29 @@ private:
         4.0 / 3.0, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0
     };
 
+    // Lee la onda personalizada de un LFO (tabla de un ciclo, con interpolacion)
+    double readTable (int l, double ph) const
+    {
+        const auto* t = params.lfoTable[l];
+        if (t == nullptr)
+            return 0.0;
+
+        const double pos = ph * (double) kLfoTableSize;
+        const int i0 = (int) pos & (kLfoTableSize - 1);
+        const int i1 = (i0 + 1) & (kLfoTableSize - 1);
+        const double fr = pos - std::floor (pos);
+        const double a = (double) t[i0].load (std::memory_order_relaxed);
+        const double b = (double) t[i1].load (std::memory_order_relaxed);
+        return a + (b - a) * fr;
+    }
+
     // Avanza los 3 LFO y calcula su efecto sobre cada destino:
-    // 0 Ninguno, 1 Pitch, 2 Cutoff, 3 Volumen, 4 Detune
+    // 0 Ninguno, 1 Pitch, 2 Cutoff, 3 Volumen, 4 Detune, 5 PW
     void updateLfos (double sr)
     {
         lfoAge += 16.0 / sr;
 
-        double pitch = 0.0, cut = 0.0, vol = 0.0, det = 0.0;
+        double pitch = 0.0, cut = 0.0, vol = 0.0, det = 0.0, pwMod = 0.0;
 
         for (int l = 0; l < kNumLfos; ++l)
         {
@@ -289,6 +317,7 @@ private:
                 case 1:  v = 4.0 * std::abs (ph - 0.5) - 1.0; break;
                 case 2:  v = 2.0 * ph - 1.0; break;
                 case 3:  v = ph < 0.5 ? 1.0 : -1.0; break;
+                case 5:  v = readTable (l, ph); break;   // onda personalizada
                 default: v = lfoHold[l]; break;   // aleatorio (sample & hold)
             }
 
@@ -301,6 +330,7 @@ private:
                 case 2:  cut   += v * c.amt * 5.0; break;
                 case 3:  vol   += v * c.amt; break;
                 case 4:  det   += v * c.amt * 300.0; break;
+                case 5:  pwMod += v * c.amt * 0.45; break;
                 default: break;
             }
         }
@@ -308,6 +338,7 @@ private:
         lfoPitch = pitch;
         lfoCut = cut;
         lfoDetune = det;
+        lfoPw = pwMod;
         lfoVol = (float) juce::jlimit (0.0, 2.0, 1.0 + vol);
     }
 
@@ -354,7 +385,7 @@ private:
                 // modulacion lenta e individual de cada oscilador
                 pos = 0.5 * pos + 0.5 * pos * std::abs (pos);
 
-                swarmPhase[u] += swarmRate[u] * 16.0 / sr;
+                swarmPhase[u] += swarmRate[u] * swarmHz * 16.0 / sr;
                 if (swarmPhase[u] >= 1.0)
                     swarmPhase[u] -= 1.0;
 
@@ -425,7 +456,7 @@ private:
         return 0.0f;
     }
 
-    static float oscillator (int type, float ph, float dt)
+    static float oscillator (int type, float ph, float dt, float pw)
     {
         switch (type)
         {
@@ -440,13 +471,14 @@ private:
 
             default: // Cuadrada
             {
-                float v = ph < 0.5f ? 1.0f : -1.0f;
+                // Cuadrada / pulso con ancho variable (pw entre 0.05 y 0.95)
+                float v = ph < pw ? 1.0f : -1.0f;
                 v += polyBlep (ph, dt);
-                float t2 = ph + 0.5f;
-                if (t2 >= 1.0f)
-                    t2 -= 1.0f;
+                float t2 = ph - pw;
+                if (t2 < 0.0f)
+                    t2 += 1.0f;
                 v -= polyBlep (t2, dt);
-                return v;
+                return v - (2.0f * pw - 1.0f);   // quita el offset de continua
             }
         }
     }
@@ -491,7 +523,9 @@ private:
     double lfoPhase[kNumLfos] {};
     double lfoHold[kNumLfos] {};
     double lfoAge = 0.0;
-    double lfoPitch = 0.0, lfoCut = 0.0, lfoDetune = 0.0;
+    double lfoPitch = 0.0, lfoCut = 0.0, lfoDetune = 0.0, lfoPw = 0.0;
+    double pwNow = 0.5;
+    double swarmHz = 0.45;
     float lfoVol = 1.0f;
     double bpm = 120.0;
 
