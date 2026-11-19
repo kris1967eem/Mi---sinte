@@ -537,7 +537,7 @@ private:
             switch (c.wave)
             {
                 case 0:  v = std::sin (juce::MathConstants<double>::twoPi * ph); break;
-                case 1:  v = 4.0 * std::abs (ph - 0.5) - 1.0; break;
+                case 1: v = ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0); break;
                 case 2:  v = 2.0 * ph - 1.0; break;
                 case 3:  v = ph < 0.5 ? 1.0 : -1.0; break;
                 case 5:  v = readTable (l, ph); break;   // onda de usuario
