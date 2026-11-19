@@ -88,6 +88,28 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     setupKnob (unisonSpread, "SPREAD", "ustereo", "", 2, kCyan);
     setupKnob (harmTilt,     "TILT",   "uharm",   "", 2, kCyan);
 
+    // --- CHORD (USER): CAPTURE, LOAD y el acorde actual (solo visibles en ese modo) ---
+    captureBtn.setButtonText ("CAPTURE");
+    captureBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe9843a));
+    captureBtn.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff1a1208));
+    captureBtn.onClick = [this]
+    {
+        if (proc.isChordCaptureArmed())
+            proc.cancelChordCapture();
+        else
+            proc.armChordCapture();
+    };
+    addToPage (0, captureBtn);
+
+    loadChordBtn.setButtonText ("LOAD");
+    loadChordBtn.onClick = [this] { chooseChordFile(); };
+    addToPage (0, loadChordBtn);
+
+    chordLabel.setJustificationType (juce::Justification::centredLeft);
+    chordLabel.setColour (juce::Label::textColourId, kAmber);
+    chordLabel.setMinimumHorizontalScale (0.6f);
+    addToPage (0, chordLabel);
+
     // --- Filtro: tipo, display de respuesta y knobs ---
     filterBox.addItemList (juce::StringArray { "LOWPASS", "HIGHPASS", "BANDPASS", "NOTCH" }, 1);
     addToPage (0, filterBox);
@@ -148,6 +170,18 @@ void MiSinteEditor::timerCallback()
         applyEnabledStates();
         repaint();
     }
+
+    // Acorde de usuario: refresca el texto cuando cambia y el boton CAPTURE mientras espera notas
+    const int chordVersion = proc.getUserChord().getVersion();
+    if (chordVersion != cachedChordVersion)
+    {
+        cachedChordVersion = chordVersion;
+        chordLabel.setText (proc.getUserChord().toText(), juce::dontSendNotification);
+    }
+
+    const bool armed = proc.isChordCaptureArmed();
+    if (armed != captureBtn.getToggleState())
+        captureBtn.setToggleState (armed, juce::dontSendNotification);
 }
 
 void MiSinteEditor::setKnobEnabled (Knob& k, bool enabled)
@@ -163,6 +197,41 @@ void MiSinteEditor::applyEnabledStates()
     setKnobEnabled (pulseWidth, cachedWave == 3);
     setKnobEnabled (syncFreq,   cachedSync);
     setKnobEnabled (harmTilt,   cachedMode == 8);
+    updateChordControls();
+}
+
+// CAPTURE, LOAD y el acorde actual solo se ven en el modo CHORD (USER)
+void MiSinteEditor::updateChordControls()
+{
+    const bool show = (currentPage == 0) && (cachedMode == 9);
+    captureBtn.setVisible (show);
+    loadChordBtn.setVisible (show);
+    chordLabel.setVisible (show);
+}
+
+void MiSinteEditor::chooseChordFile()
+{
+    chooser = std::make_unique<juce::FileChooser> (
+        "Choose a MIDI file with a chord", juce::File(), "*.mid;*.midi");
+
+    juce::Component::SafePointer<MiSinteEditor> safe (this);
+
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles,
+                          [safe] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr)
+            return;
+
+        const auto file = fc.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        if (safe->proc.loadChordFromMidi (file))
+            safe->cachedChordVersion = -1;   // fuerza el refresco del texto
+        else
+            safe->chordLabel.setText ("MIDI ERROR", juce::dontSendNotification);
+    });
 }
 
 void MiSinteEditor::addToPage (int page, juce::Component& c)
@@ -180,6 +249,7 @@ void MiSinteEditor::showPage (int page)
 
     pageOscBtn.setToggleState (page == 0, juce::dontSendNotification);
     pageLfoBtn.setToggleState (page == 1, juce::dontSendNotification);
+    updateChordControls();
     repaint();
 }
 
@@ -475,6 +545,10 @@ void MiSinteEditor::resized()
     placeKnob (drift,  624, kTuningY, kKnobW, kDialH, s);
 
     unisonModeBox.setBounds (S (413), S (224), S (130), S (24));
+    captureBtn.setBounds (S (549), S (224), S (70), S (24));
+    loadChordBtn.setBounds (S (623), S (224), S (46), S (24));
+    chordLabel.setBounds (S (673), S (224), S (66), S (24));
+    chordLabel.setFont (juce::Font (juce::FontOptions (12.0f * s)));
     placeKnob (unisonVoices, 349, kMidY, kKnobW, kDialH, s);
     placeKnob (unisonDetune, 429, kMidY, kKnobW, kDialH, s);
     placeKnob (unisonSpread, 509, kMidY, kKnobW, kDialH, s);

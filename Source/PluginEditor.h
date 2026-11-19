@@ -43,6 +43,8 @@ private:
     void layoutLfo (LfoUI& u, int index, float s);
     void showPage (int page);
     void applyEnabledStates();
+    void updateChordControls();
+    void chooseChordFile();
     static void setKnobEnabled (Knob& k, bool enabled);
     static void scaleLabel (juce::Label& l, float s);
 
@@ -62,6 +64,10 @@ private:
 
     // Unison
     Knob unisonVoices, unisonDetune, unisonSpread, harmTilt;
+
+    // Modo CHORD (USER): captura desde el teclado, carga desde MIDI y acorde actual
+    juce::TextButton captureBtn, loadChordBtn;
+    juce::Label chordLabel;
     juce::ComboBox unisonModeBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> unisonModeAttach;
 
@@ -82,6 +88,7 @@ private:
     std::atomic<float>* modeRaw = nullptr;
     int cachedWave = -1;
     int cachedMode = -1;
+    int cachedChordVersion = -1;
     bool cachedSync = false;
     bool cachedValid = false;
 };

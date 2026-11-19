@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "SynthVoice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <algorithm>
 
 static constexpr int kNumVoices = 16;
 
@@ -64,6 +65,8 @@ MiSinteProcessor::MiSinteProcessor()
     vp.dispReso    = &filterDisplay.reso;
     vp.dispWrites  = &filterDisplay.writes;
     vp.noteCounter = &noteCounter;
+    vp.chordIntervals = userChord.intervalsData();
+    vp.chordCount     = userChord.countPtr();
     vp.lastNote   = &lastNote;
 
     for (int i = 0; i < kNumVoices; ++i)
@@ -127,7 +130,7 @@ MiSinteProcessor::createLayout()
     layout.add (std::make_unique<AudioParameterChoice> (
         ParameterID { "umode", 1 }, "Unison Mode",
         StringArray { "NORMAL", "OCTAVES", "FIFTH", "MAJOR", "MINOR", "MAJOR 7", "MINOR 7",
-                      "SUB", "HARMONIC" }, 0));
+                      "SUB", "HARMONIC", "CHORD (USER)" }, 0));
 
     // Detune de 0 a 1200 cents (una octava). La primera mitad del recorrido
     // del knob cubre de 0 a 100 cents para tener control fino.
@@ -263,6 +266,9 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (auto bpm = position->getBpm())
                 hostBpm.store ((float) *bpm);
 
+    // Captura de acorde (boton CAPTURE): lee las notas entrantes antes de tocarlas
+    chordCapture.process (midi, buffer.getNumSamples(), getSampleRate(), userChord);
+
     synth.renderNextBlock (buffer, midi, 0, buffer.getNumSamples());
 
     const float gain = apvts.getRawParameterValue ("volume")->load();
@@ -296,6 +302,8 @@ void MiSinteProcessor::getStateInformation (juce::MemoryBlock& destData)
                            lfoWaveName[i], nullptr);
     }
 
+    state.setProperty ("userChord", userChord.toText(), nullptr);
+
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -307,6 +315,10 @@ void MiSinteProcessor::setStateInformation (const void* data, int size)
     {
         const auto tree = juce::ValueTree::fromXml (*xml);
         apvts.replaceState (tree);
+
+        // Recupera el acorde de usuario
+        if (tree.hasProperty ("userChord"))
+            userChord.setFromText (tree.getProperty ("userChord").toString());
 
         // Recupera las user waves de los LFO
         for (int i = 0; i < kNumLfos; ++i)
@@ -388,6 +400,77 @@ bool MiSinteProcessor::loadLfoWave (int index, const juce::File& file)
 
     lfoWaveName[index] = file.getFileNameWithoutExtension();
     lfoWaveLoaded[index] = true;
+    return true;
+}
+
+// Lee un archivo MIDI y usa su acorde como acorde de usuario. Se toman las notas que empiezan
+// a la vez que la primera (con una tolerancia de 60 ms). Si hay menos de dos, se usan todas
+// las notas distintas del archivo.
+bool MiSinteProcessor::loadChordFromMidi (const juce::File& file)
+{
+    juce::FileInputStream stream (file);
+    if (! stream.openedOk())
+        return false;
+
+    juce::MidiFile midiFile;
+    if (! midiFile.readFrom (stream))
+        return false;
+
+    midiFile.convertTimestampTicksToSeconds();
+
+    struct NoteEvent { double time; int note; };
+    std::vector<NoteEvent> events;
+
+    for (int t = 0; t < midiFile.getNumTracks(); ++t)
+    {
+        if (const auto* track = midiFile.getTrack (t))
+        {
+            for (int e = 0; e < track->getNumEvents(); ++e)
+            {
+                const auto& msg = track->getEventPointer (e)->message;
+                if (msg.isNoteOn())
+                    events.push_back ({ msg.getTimeStamp(), msg.getNoteNumber() });
+            }
+        }
+    }
+
+    if (events.empty())
+        return false;
+
+    std::sort (events.begin(), events.end(),
+               [] (const NoteEvent& a, const NoteEvent& b) { return a.time < b.time; });
+
+    const double t0 = events.front().time;
+
+    int together[128];
+    int all[128];
+    int nTogether = 0, nAll = 0;
+    bool seenTogether[128] = {};
+    bool seenAll[128] = {};
+
+    for (const auto& ev : events)
+    {
+        if (ev.note < 0 || ev.note > 127)
+            continue;
+
+        if (! seenAll[ev.note])
+        {
+            seenAll[ev.note] = true;
+            all[nAll++] = ev.note;
+        }
+
+        if (ev.time - t0 <= 0.06 && ! seenTogether[ev.note])
+        {
+            seenTogether[ev.note] = true;
+            together[nTogether++] = ev.note;
+        }
+    }
+
+    if (nTogether >= 2)
+        userChord.setFromNotes (together, nTogether);
+    else
+        userChord.setFromNotes (all, nAll);
+
     return true;
 }
 

@@ -4,6 +4,7 @@
 #include <atomic>
 #include "SynthVoice.h"
 #include "FilterResponseDisplay.h"
+#include "UserChord.h"
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -41,6 +42,13 @@ public:
     // Datos que el display del filtro lee para mostrar la modulacion en tiempo real
     FilterDisplayState& getFilterDisplay() { return filterDisplay; }
 
+    // Acorde de usuario del modo CHORD (USER): captura desde el teclado o carga desde un MIDI
+    UserChord& getUserChord() { return userChord; }
+    void armChordCapture()    { chordCapture.arm(); }
+    void cancelChordCapture() { chordCapture.cancel(); }
+    bool isChordCaptureArmed() const { return chordCapture.isArmed(); }
+    bool loadChordFromMidi (const juce::File& file);
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -51,6 +59,8 @@ private:
     std::atomic<float> hostBpm { 120.0f };
     std::atomic<int> noteCounter { 0 };
     FilterDisplayState filterDisplay;
+    UserChord userChord;
+    ChordCapture chordCapture;
 
     std::array<std::atomic<float>, kLfoTableSize> lfoTables[kNumLfos];
     juce::String lfoWaveName[kNumLfos];

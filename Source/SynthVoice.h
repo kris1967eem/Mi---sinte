@@ -67,6 +67,10 @@ struct VoiceParams
     std::atomic<float>* dispReso    = nullptr;
     std::atomic<int>*   dispWrites  = nullptr;
     std::atomic<int>*   noteCounter = nullptr;
+
+    // Acorde de usuario (modo CHORD): intervalos en semitonos y numero de notas
+    const std::atomic<int>* chordIntervals = nullptr;
+    const std::atomic<int>* chordCount     = nullptr;
 };
 
 struct SynthSound : public juce::SynthesiserSound
@@ -441,10 +445,11 @@ public:
 
 private:
     // Modos de unison: 0 NORMAL, 1 OCTAVES, 2 FIFTH, 3 MAJOR, 4 MINOR, 5 MAJOR 7,
-    //                  6 MINOR 7, 7 SUB, 8 HARMONIC
-    static constexpr int kNumModes = 9;
+    //                  6 MINOR 7, 7 SUB, 8 HARMONIC, 9 CHORD (USER)
+    static constexpr int kNumModes = 10;
     static constexpr int kModeSub = 7;
     static constexpr int kModeHarmonic = 8;
+    static constexpr int kModeChord = 9;
 
     // Intervalos (en semitonos) de cada voz del unison segun el modo.
     // SUB y HARMONIC se calculan aparte.
@@ -457,6 +462,7 @@ private:
         {  0,  3,   7, 12,  15, 19,  24, 27,   0,  3,   7, 12,  15, 19,  24, 27 },
         {  0,  4,   7, 11,  12, 16,  19, 23,   0,  4,   7, 11,  12, 16,  19, 23 },
         {  0,  3,   7, 10,  12, 15,  19, 22,   0,  3,   7, 10,  12, 15,  19, 22 },
+        {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 },
         {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 },
         {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 }
     };
@@ -612,6 +618,13 @@ private:
                 interval = -12.0;                              // una de cada tres baja una octava
             else if (harmonic)
                 interval = 12.0 * std::log2 ((double) (u + 1)); // parcial u+1 de la serie armonica
+            else if (mode == kModeChord)
+            {
+                // Acorde de usuario: voz u = nota (u mod numero de notas) del acorde.
+                // Con mas voces que notas el acorde se repite; con menos suenan las mas graves.
+                const int cnt = juce::jlimit (1, kMaxUnison, params.chordCount->load (std::memory_order_relaxed));
+                interval = (double) params.chordIntervals[u % cnt].load (std::memory_order_relaxed);
+            }
 
             const double semis = (double) bendSemitones + tuneOffset + lfoPitch
                                + interval + cents / 100.0;
