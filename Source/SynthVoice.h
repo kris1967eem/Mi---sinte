@@ -75,6 +75,128 @@ struct SynthSound : public juce::SynthesiserSound
     bool appliesToChannel (int) override { return true; }
 };
 
+// Envolvente ADSR propia (usada para AMP ENV y FILTER ENV).
+//
+// Sustituye a juce::ADSR, que tenia este fallo: setParameters() recalcula la velocidad
+// de release a partir del SUSTAIN (releaseRate = sustain / (release * sampleRate)) y
+// pisa la que noteOff() acababa de calcular desde el nivel actual. Como el motor llama a
+// setParameters() en cada bloque de audio, con Sustain = 0 la velocidad de release pasaba
+// a ser 0 y la envolvente saltaba a "idle" al instante (corte en seco). Con Sustain > 0
+// el release tampoco partia del nivel real, sino de una velocidad calculada con el sustain.
+//
+// Esta version:
+//  - En Note Off, el Release parte exactamente del nivel actual (Attack, Decay o Sustain).
+//  - Decay y Release son exponenciales y terminan al bajar del umbral de silencio (0.0001).
+//  - setParameters() solo recalcula coeficientes: nunca toca el estado ni el nivel, asi
+//    que se puede llamar en cada bloque sin cortar un Release en curso.
+//  - Un noteOn arranca el Attack desde el nivel actual (sin saltos ni clics).
+class Envelope
+{
+public:
+    void setSampleRate (double newRate)
+    {
+        if (newRate > 0.0)
+        {
+            sampleRate = newRate;
+            recalculate();
+        }
+    }
+
+    void setParameters (float attackSec, float decaySec, float sustainLevel, float releaseSec)
+    {
+        attack = attackSec;
+        decay = decaySec;
+        sustain = juce::jlimit (0.0f, 1.0f, sustainLevel);
+        release = releaseSec;
+        recalculate();
+    }
+
+    void noteOn()  { state = State::attack; }
+
+    void noteOff()
+    {
+        // El nivel actual se conserva: el Release parte de aqui
+        if (state != State::idle)
+            state = State::release;
+    }
+
+    void reset()
+    {
+        state = State::idle;
+        level = 0.0f;
+    }
+
+    bool isActive() const { return state != State::idle; }
+
+    float getNextSample()
+    {
+        switch (state)
+        {
+            case State::idle:
+                return 0.0f;
+
+            case State::attack:
+                level += attackInc;
+                if (level >= 1.0f)
+                {
+                    level = 1.0f;
+                    state = State::decay;
+                }
+                break;
+
+            case State::decay:
+                // Exponencial hacia el nivel de sustain
+                level = sustain + (level - sustain) * decayCoef;
+                if (std::abs (level - sustain) <= kSilence)
+                {
+                    level = sustain;
+                    state = State::sustain;
+                }
+                break;
+
+            case State::sustain:
+                // Sigue suavemente los cambios del knob SUSTAIN (sin saltos)
+                level += (sustain - level) * sustainSmooth;
+                break;
+
+            case State::release:
+                // Exponencial desde el nivel actual hasta el umbral de silencio
+                level *= releaseCoef;
+                if (level <= kSilence)
+                {
+                    level = 0.0f;
+                    state = State::idle;
+                }
+                break;
+        }
+
+        return level;
+    }
+
+private:
+    enum class State { idle, attack, decay, sustain, release };
+
+    static constexpr float kSilence = 0.0001f;   // umbral de silencio (-80 dB)
+
+    void recalculate()
+    {
+        const double lnSilence = std::log ((double) kSilence);   // negativo
+
+        // Los tiempos de Decay y Release son lo que tarda la curva en llegar al silencio
+        attackInc     = (float) (1.0 / ((double) juce::jmax (attack, 0.0005f) * sampleRate));
+        decayCoef     = (float) std::exp (lnSilence / ((double) juce::jmax (decay, 0.0005f) * sampleRate));
+        releaseCoef   = (float) std::exp (lnSilence / ((double) juce::jmax (release, 0.0005f) * sampleRate));
+        sustainSmooth = (float) (1.0 - std::exp (-1.0 / (0.005 * sampleRate)));   // ~5 ms
+    }
+
+    State state = State::idle;
+    double sampleRate = 44100.0;
+    float level = 0.0f;
+
+    float attack = 0.01f, decay = 0.3f, sustain = 0.7f, release = 0.3f;
+    float attackInc = 0.0f, decayCoef = 0.0f, releaseCoef = 0.0f, sustainSmooth = 0.0f;
+};
+
 class SynthVoice : public juce::SynthesiserVoice
 {
 public:
@@ -605,15 +727,15 @@ private:
 
     void updateEnvelopes()
     {
-        adsr.setParameters ({ params.attack->load(),
-                              params.decay->load(),
-                              params.sustain->load(),
-                              params.release->load() });
+        adsr.setParameters (params.attack->load(),
+                            params.decay->load(),
+                            params.sustain->load(),
+                            params.release->load());
 
-        filterAdsr.setParameters ({ params.fAttack->load(),
-                                    params.fDecay->load(),
-                                    params.fSustain->load(),
-                                    params.fRelease->load() });
+        filterAdsr.setParameters (params.fAttack->load(),
+                                  params.fDecay->load(),
+                                  params.fSustain->load(),
+                                  params.fRelease->load());
     }
 
     struct LfoCfg
@@ -623,8 +745,8 @@ private:
     };
 
     VoiceParams params;
-    juce::ADSR adsr;
-    juce::ADSR filterAdsr;
+    Envelope adsr;         // AMP ENV
+    Envelope filterAdsr;   // FILTER ENV
     juce::Random random;
 
     // Osciladores del unison
