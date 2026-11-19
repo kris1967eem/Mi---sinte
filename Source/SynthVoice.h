@@ -277,8 +277,8 @@ public:
     {
         if (allowTailOff)
         {
-            adsr.noteOff();
-            filterAdsr.noteOff();
+            adsr.noteOff();F
+            filterAdsr.noteOff();F
         }
         else
         {
@@ -337,7 +337,9 @@ public:
             c.dest = (int) params.lfoDest[l]->load();
             c.rate = (double) params.lfoRate[l]->load();
             c.amt  = (double) params.lfoAmt[l]->load();
-            c.fade = (double) params.lfoFade[l]->load();
+            c.fade = (double) params.lfoFade[l]->load();c.
+            c.poly = params.lfoPoly[l]->load() > 0.5f;
+
         }
 
         for (int i = 0; i < numSamples; ++i)
