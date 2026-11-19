@@ -59,6 +59,7 @@ struct VoiceParams
 
     // Tempo del host (para el sync de los LFO)
     std::atomic<float>* bpm = nullptr;
+    const std::atomic<std::uint64_t>* sampleCounter = nullptr;
 
     // Ultima nota tocada (compartida por todas las voces, para el glide)
     std::atomic<float>* lastNote = nullptr;
