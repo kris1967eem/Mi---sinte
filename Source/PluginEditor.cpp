@@ -26,6 +26,14 @@ namespace
     const juce::Colour kCyan   (0xff3fd0d4);
     const juce::Colour kGreen  (0xff8be04e);
     const juce::Colour kPink   (0xffe0679f);
+
+    // Rellena un menu con las opciones del propio parametro, para que el menu y el motor
+    // nunca puedan quedar desincronizados (una sola lista, la del procesador)
+    void fillCombo (juce::AudioProcessorValueTreeState& apvts, juce::ComboBox& box, const juce::String& paramID)
+    {
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (paramID)))
+            box.addItemList (choice->choices, 1);
+    }
 }
 
 MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
@@ -76,9 +84,7 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     setupKnob (volume, "VOLUME", "volume", "", 2, kGreen);
 
     // --- Unison ---
-    unisonModeBox.addItemList (juce::StringArray { "NORMAL", "OCTAVES", "FIFTH", "MAJOR",
-                                                   "MINOR", "MAJOR 7", "MINOR 7",
-                                                   "SUB", "HARMONIC" }, 1);
+    fillCombo (proc.apvts, unisonModeBox, "umode");
     addToPage (0, unisonModeBox);
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);
@@ -111,7 +117,7 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     addToPage (0, chordLabel);
 
     // --- Filtro: tipo, display de respuesta y knobs ---
-    filterBox.addItemList (juce::StringArray { "LOWPASS", "HIGHPASS", "BANDPASS", "NOTCH" }, 1);
+    fillCombo (proc.apvts, filterBox, "ftype");
     addToPage (0, filterBox);
     filterAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "ftype", filterBox);
@@ -295,16 +301,9 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
         addToPage (1, *l);
     }
 
-    u.wave.addItemList (juce::StringArray { "SINE", "TRIANGLE", "SAW", "SQUARE",
-                                            "RANDOM", "USER WAVE" }, 1);
-    u.dest.addItemList (juce::StringArray { "NONE", "PITCH", "CUTOFF", "RESO", "VOLUME",
-                                            "DETUNE", "PW", "SYNC FREQ",
-                                            "LFO 1 RATE", "LFO 2 RATE",
-                                            "LFO 3 RATE", "LFO 4 RATE" }, 1);
-    u.sync.addItemList (juce::StringArray { "FREE", "8/1", "4/1", "2/1", "1/1", "1/2", "1/4",
-                                            "1/8", "1/16", "1/32",
-                                            "8/1T", "4/1T", "2/1T", "1/1T", "1/2T", "1/4T",
-                                            "1/8T", "1/16T", "1/32T" }, 1);
+    fillCombo (proc.apvts, u.wave, "lfo" + n + "wave");
+    fillCombo (proc.apvts, u.dest, "lfo" + n + "dest");
+    fillCombo (proc.apvts, u.sync, "lfo" + n + "sync");
     addToPage (1, u.wave);
     addToPage (1, u.dest);
     addToPage (1, u.sync);
