@@ -51,7 +51,8 @@ struct VoiceParams
     std::atomic<float>* lfoSync[kNumLfos]       {};   // 0 = libre, resto = divisiones
     std::atomic<float>* lfoAmt[kNumLfos]        {};
     std::atomic<float>* lfoDest[kNumLfos]       {};
-    std::atomic<float>* lfoRetrig[kNumLfos]     {};
+    std::atomic<float>* lfoRetrig[kNumLfos]     {}; 
+    std::atomic<float>* lfoPoly[kNumLfos]       {};
     std::atomic<float>* lfoFade[kNumLfos]       {};
     std::atomic<float>* lfoPhaseStart[kNumLfos] {};   // grados
     const std::atomic<float>* lfoTable[kNumLfos] {};  // onda de usuario de cada LFO
