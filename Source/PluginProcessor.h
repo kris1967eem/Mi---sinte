@@ -57,7 +57,7 @@ private:
     float lastGain = 0.7f;
     std::atomic<float> lastNote { -1.0f };
     std::atomic<float> hostBpm { 120.0f };
-  std::atomic<std::uint64_t> globalSampleCounter { 0 };
+    std::atomic<int> noteCounter { 0 };
     FilterDisplayState filterDisplay;
     UserChord userChord;
     ChordCapture chordCapture;

@@ -51,15 +51,13 @@ struct VoiceParams
     std::atomic<float>* lfoSync[kNumLfos]       {};   // 0 = libre, resto = divisiones
     std::atomic<float>* lfoAmt[kNumLfos]        {};
     std::atomic<float>* lfoDest[kNumLfos]       {};
-    std::atomic<float>* lfoRetrig[kNumLfos]     {}; 
-    std::atomic<float>* lfoPoly[kNumLfos]       {};
+    std::atomic<float>* lfoRetrig[kNumLfos]     {};
     std::atomic<float>* lfoFade[kNumLfos]       {};
     std::atomic<float>* lfoPhaseStart[kNumLfos] {};   // grados
     const std::atomic<float>* lfoTable[kNumLfos] {};  // onda de usuario de cada LFO
 
     // Tempo del host (para el sync de los LFO)
     std::atomic<float>* bpm = nullptr;
-    const std::atomic<std::uint64_t>* sampleCounter = nullptr;
 
     // Ultima nota tocada (compartida por todas las voces, para el glide)
     std::atomic<float>* lastNote = nullptr;
@@ -277,8 +275,8 @@ public:
     {
         if (allowTailOff)
         {
-            adsr.noteOff();F
-            filterAdsr.noteOff();F
+            adsr.noteOff();
+            filterAdsr.noteOff();
         }
         else
         {
@@ -337,9 +335,7 @@ public:
             c.dest = (int) params.lfoDest[l]->load();
             c.rate = (double) params.lfoRate[l]->load();
             c.amt  = (double) params.lfoAmt[l]->load();
-            c.fade = (double) params.lfoFade[l]->load();c.
-            c.poly = params.lfoPoly[l]->load() > 0.5f;
-
+            c.fade = (double) params.lfoFade[l]->load();
         }
 
         for (int i = 0; i < numSamples; ++i)
@@ -541,7 +537,7 @@ private:
             switch (c.wave)
             {
                 case 0:  v = std::sin (juce::MathConstants<double>::twoPi * ph); break;
-                case 1: v = ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0); break;
+                case 1:  v = ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0); break;   // triangulo (sube desde 0)
                 case 2:  v = 2.0 * ph - 1.0; break;
                 case 3:  v = ph < 0.5 ? 1.0 : -1.0; break;
                 case 5:  v = readTable (l, ph); break;   // onda de usuario
@@ -710,7 +706,7 @@ private:
         switch (type)
         {
             case 0:  return std::sin (ph * juce::MathConstants<float>::twoPi);
-            case 1:  return 4.0f * std::abs (ph - 0.5f) - 1.0f;
+            case 1:  return ph < 0.25f ? 4.0f * ph : (ph < 0.75f ? 2.0f - 4.0f * ph : 4.0f * ph - 4.0f);
             case 2:  return 2.0f * ph - 1.0f;
             default: return ph < pw ? 1.0f : -1.0f;
         }
@@ -723,8 +719,8 @@ private:
             case 0: // Seno
                 return std::sin (ph * juce::MathConstants<float>::twoPi);
 
-            case 1: // Triangulo
-                return 4.0f * std::abs (ph - 0.5f) - 1.0f;
+            case 1: // Triangulo: arranca en 0, sube a +1, baja a -1 y vuelve a 0
+                return ph < 0.25f ? 4.0f * ph : (ph < 0.75f ? 2.0f - 4.0f * ph : 4.0f * ph - 4.0f);
 
             case 2: // Sierra
                 return 2.0f * ph - 1.0f - polyBlep (ph, dt);
