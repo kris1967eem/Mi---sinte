@@ -4,15 +4,16 @@ namespace
 {
     // Tamano de diseno (100%). Todo se escala a partir de el.
     constexpr int kDesignW = 1000;
-    constexpr int kDesignH = 510;
-    constexpr int kTop = 36;             // altura de la barra de pestanas
+    constexpr int kDesignH = 540;
+    constexpr int kTop = 62;             // altura de la barra superior (pestanas)
     constexpr int kKnobW = 80;
     constexpr int kDialH = 96;
 
-    // Pestana OSC
-    constexpr int kOscH = 304;           // altura del panel del oscilador
-    constexpr int kRow2Y = kTop + 312;   // fila de filtro y envolventes
-    constexpr int kRow2H = 154;
+    // Pestana OSC: filas de knobs (coordenada y de la etiqueta)
+    constexpr int kTuningY = 93;
+    constexpr int kMidY = 251;           // PW/FREQ, unison y filtro
+    constexpr int kBottomY = 411;        // envolventes y volumen
+    constexpr int kRowLineY = 380;       // separador entre las dos zonas
 
     // Pestana LFOs
     constexpr int kLfoBlockH = 236;
@@ -28,7 +29,8 @@ namespace
 }
 
 MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), waveDisplay (p.apvts)
+    : AudioProcessorEditor (&p), proc (p),
+      waveDisplay (p.apvts), filterDisplay (p.apvts, p.getFilterDisplay())
 {
     waveRaw = proc.apvts.getRawParameterValue ("wave");
     syncRaw = proc.apvts.getRawParameterValue ("oscsync");
@@ -66,11 +68,11 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     setupKnob (pulseWidth, "PW",    "pw",       "", 2, kOrange);
     setupKnob (syncFreq,   "FREQ",  "syncfreq", " st", 1, kOrange);
 
-    setupKnob (octave, "OCT",   "octave", "", 0, kAmber);
-    setupKnob (semi,   "SEMI",  "semi",   "", 0, kAmber);
-    setupKnob (fine,   "FINE",  "fine",   " ct", 0, kAmber);
-    setupKnob (glide,  "GLIDE", "glide",  " s", 2, kAmber);
-    setupKnob (drift,  "DRIFT", "drift",  "", 2, kAmber);
+    setupKnob (octave, "OCT",    "octave", "", 0, kAmber);
+    setupKnob (semi,   "SEMI",   "semi",   "", 0, kAmber);
+    setupKnob (fine,   "FINE",   "fine",   " ct", 0, kAmber);
+    setupKnob (glide,  "GLIDE",  "glide",  " s", 2, kAmber);
+    setupKnob (drift,  "DRIFT",  "drift",  "", 2, kAmber);
     setupKnob (volume, "VOLUME", "volume", "", 2, kGreen);
 
     // --- Unison ---
@@ -86,15 +88,19 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     setupKnob (unisonSpread, "SPREAD", "ustereo", "", 2, kCyan);
     setupKnob (harmTilt,     "TILT",   "uharm",   "", 2, kCyan);
 
-    // --- Filtro y su envolvente ---
+    // --- Filtro: tipo, display de respuesta y knobs ---
     filterBox.addItemList (juce::StringArray { "LOWPASS", "HIGHPASS", "BANDPASS", "NOTCH" }, 1);
     addToPage (0, filterBox);
     filterAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "ftype", filterBox);
 
+    addToPage (0, filterDisplay);
+
     setupKnob (cutoff,   "CUTOFF",  "cutoff",    " Hz", 0, kOrange);
     setupKnob (reso,     "RESO",    "resonance", "", 2, kOrange);
     setupKnob (envAmt,   "ENV AMT", "envamt",    "", 2, kOrange);
+
+    // --- Envolvente del filtro ---
     setupKnob (fAttack,  "ATTACK",  "fattack",   " s", 2, kPink);
     setupKnob (fDecay,   "DECAY",   "fdecay",    " s", 2, kPink);
     setupKnob (fSustain, "SUSTAIN", "fsustain",  "", 2, kPink);
@@ -352,19 +358,18 @@ void MiSinteEditor::paint (juce::Graphics& g)
     const float s = (float) getWidth() / (float) kDesignW;
     auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
-    const juce::Colour titleColour = juce::Colours::white.withAlpha (0.55f);
+    const juce::Colour titleColour = juce::Colours::white.withAlpha (0.65f);
     const juce::Colour lineColour = juce::Colours::white.withAlpha (0.10f);
 
-    g.fillAll (juce::Colour (0xff17171c));
+    g.fillAll (juce::Colour (0xff1b1c21));
 
-    auto panel = [&] (int x, int y, int w, int h)
-    {
-        const juce::Rectangle<float> r ((float) S (x), (float) S (y), (float) S (w), (float) S (h));
-        g.setColour (juce::Colour (0xff22222a));
-        g.fillRoundedRectangle (r, 7.0f * s);
-        g.setColour (juce::Colour (0xff343440));
-        g.drawRoundedRectangle (r, 7.0f * s, 1.0f);
-    };
+    // Barra superior con la tira de pestanas
+    g.setColour (juce::Colour (0xff15161a));
+    g.fillRect (0, 0, getWidth(), S (kTop - 1));
+    g.setColour (juce::Colour (0xff101115));
+    g.fillRoundedRectangle ((float) S (290), (float) S (10), (float) S (261), (float) S (33), 6.0f * s);
+    g.setColour (lineColour);
+    g.drawHorizontalLine (S (kTop - 1), 0.0f, (float) getWidth());
 
     auto caption = [&] (const juce::String& text, int x, int y, int w)
     {
@@ -373,70 +378,48 @@ void MiSinteEditor::paint (juce::Graphics& g)
         g.drawText (text, S (x), S (y), S (w), S (18), juce::Justification::left);
     };
 
-    auto vline = [&] (int x, int y, int h)
-    {
-        g.setColour (lineColour);
-        g.drawVerticalLine (S (x), (float) S (y), (float) S (y + h));
-    };
-
-    auto hline = [&] (int x1, int x2, int y)
-    {
-        g.setColour (lineColour);
-        g.drawHorizontalLine (S (y), (float) S (x1), (float) S (x2));
-    };
-
     if (currentPage == 0)
     {
-        const int y1 = kTop;
-        const int y2 = kRow2Y;
-
-        // ---------- Panel del oscilador ----------
-        panel (12, y1, 976, kOscH);
-        caption ("OSCILLATOR", 24, y1 + 6, 120);
-        caption ("TUNING", 296, y1 + 6, 80);
-        caption ("UNISON", 296, y1 + 158, 60);
-        caption ("OUTPUT", 896, y1 + 6, 80);
+        // ---------- Oscilador ----------
+        caption ("OSCILLATOR", 44, 70, 120);
+        caption ("TUNING", 303, 69, 80);
+        caption ("UNISON", 308, 227, 70);
 
         // Selector de tipo de oscilador (como en Dune 3). Por ahora solo VA esta activo.
         auto pill = [&] (const juce::String& text, int x, bool active)
         {
-            const juce::Rectangle<float> r ((float) S (x), (float) S (y1 + 30), (float) S (44), (float) S (22));
+            const juce::Rectangle<float> r ((float) S (x), (float) S (95), (float) S (44), (float) S (22));
             g.setColour (active ? juce::Colour (0xffe9843a) : juce::Colour (0xff2c2c36));
             g.fillRoundedRectangle (r, 11.0f * s);
             g.setColour (active ? juce::Colour (0xff1a1208) : juce::Colour (0xff6c6c78));
             g.setFont (juce::Font (juce::FontOptions (12.0f * s, juce::Font::bold)));
             g.drawText (text, r.toNearestInt(), juce::Justification::centred);
         };
-        pill ("VA", 24, true);
-        pill ("WT", 72, false);
-        pill ("FM", 120, false);
+        pill ("VA", 44, true);
+        pill ("WT", 92, false);
+        pill ("FM", 140, false);
 
         g.setColour (juce::Colours::white.withAlpha (0.35f));
         g.setFont (juce::Font (juce::FontOptions (11.0f * s)));
-        g.drawText ("WAVEFORM", S (24), S (y1 + 148), S (230), S (16), juce::Justification::centred);
+        g.drawText ("WAVEFORM", S (44), S (213), S (228), S (16), juce::Justification::centred);
 
-        vline (276, y1 + 10, kOscH - 20);
-        hline (290, 976, y1 + 153);
-        vline (886, y1 + 10, 140);
+        // ---------- Filtro ----------
+        caption ("FILTER", 729, 70, 60);
 
-        // ---------- Filtro (con su envolvente) ----------
-        panel (12, y2, 604, kRow2H);
-        caption ("FILTER", 24, y2 + 6, 60);
-        caption ("FILTER ENV", 284, y2 + 6, 100);
-        vline (272, y2 + 10, kRow2H - 20);
+        // ---------- Separador y fila inferior ----------
+        g.setColour (lineColour);
+        g.drawHorizontalLine (S (kRowLineY), 0.0f, (float) getWidth());
 
-        // ---------- Envolvente de amplitud ----------
-        panel (628, y2, 360, kRow2H);
-        caption ("AMP ENV", 640, y2 + 6, 100);
+        caption ("AMP ENV", 12, 386, 100);
+        caption ("OUTPUT", 447, 388, 100);
+        caption ("FILTER ENV", 657, 386, 100);
     }
     else
     {
-        for (int i = 0; i < kNumLfos; ++i)
-        {
-            const int bx = (i % 2 == 0) ? 24 : 512;
-            const int by = kTop + 8 + (i / 2) * kLfoBlockH;
-            panel (bx - 12, by - 8, 482, 220);
-        }
+        // Separadores entre los 4 LFOs
+        g.setColour (lineColour);
+        g.drawVerticalLine (S (500), (float) S (kTop + 10), (float) S (kDesignH - 20));
+        g.drawHorizontalLine (S (kTop + 8 + kLfoBlockH - 14), (float) S (20), (float) S (kDesignW - 20));
     }
 }
 
@@ -473,50 +456,50 @@ void MiSinteEditor::resized()
     const float s = (float) getWidth() / (float) kDesignW;
     auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
-    pageOscBtn.setBounds (S (20), S (6), S (80), S (26));
-    pageLfoBtn.setBounds (S (106), S (6), S (80), S (26));
+    pageOscBtn.setBounds (S (297), S (13), S (79), S (26));
+    pageLfoBtn.setBounds (S (382), S (13), S (80), S (26));
 
-    const int y1 = kTop;
-    const int y2 = kRow2Y;
+    // ---------- Oscilador: display de onda, PW, FREQ, SYNC y RESET ----------
+    waveDisplay.setBounds (S (44), S (127), S (228), S (83));
 
-    // ---------- Oscilador: columna izquierda ----------
-    waveDisplay.setBounds (S (24), S (y1 + 62), S (230), S (84));
+    placeKnob (pulseWidth, 45,  kMidY, kKnobW, kDialH, s);
+    placeKnob (syncFreq,   129, kMidY, kKnobW, kDialH, s);
+    syncBtn.setBounds  (S (217), S (279), S (57), S (25));
+    resetBtn.setBounds (S (217), S (313), S (57), S (25));
 
-    placeKnob (pulseWidth, 24,  y1 + 176, kKnobW, kDialH, s);
-    placeKnob (syncFreq,   108, y1 + 176, kKnobW, kDialH, s);
-    syncBtn.setBounds  (S (196), S (y1 + 206), S (58), S (26));
-    resetBtn.setBounds (S (196), S (y1 + 240), S (58), S (26));
+    // ---------- Tuning y unison ----------
+    placeKnob (octave, 304, kTuningY, kKnobW, kDialH, s);
+    placeKnob (semi,   384, kTuningY, kKnobW, kDialH, s);
+    placeKnob (fine,   464, kTuningY, kKnobW, kDialH, s);
+    placeKnob (glide,  544, kTuningY, kKnobW, kDialH, s);
+    placeKnob (drift,  624, kTuningY, kKnobW, kDialH, s);
 
-    // ---------- Oscilador: afinacion y salida ----------
-    placeKnob (octave, 296, y1 + 30, kKnobW, kDialH, s);
-    placeKnob (semi,   376, y1 + 30, kKnobW, kDialH, s);
-    placeKnob (fine,   456, y1 + 30, kKnobW, kDialH, s);
-    placeKnob (glide,  536, y1 + 30, kKnobW, kDialH, s);
-    placeKnob (drift,  616, y1 + 30, kKnobW, kDialH, s);
-    placeKnob (volume, 896, y1 + 30, kKnobW, kDialH, s);
+    unisonModeBox.setBounds (S (413), S (224), S (130), S (24));
+    placeKnob (unisonVoices, 349, kMidY, kKnobW, kDialH, s);
+    placeKnob (unisonDetune, 429, kMidY, kKnobW, kDialH, s);
+    placeKnob (unisonSpread, 509, kMidY, kKnobW, kDialH, s);
+    placeKnob (harmTilt,     589, kMidY, kKnobW, kDialH, s);
 
-    // ---------- Oscilador: unison ----------
-    unisonModeBox.setBounds (S (360), S (y1 + 156), S (130), S (24));
-    placeKnob (unisonVoices, 296, y1 + 184, kKnobW, kDialH, s);
-    placeKnob (unisonDetune, 376, y1 + 184, kKnobW, kDialH, s);
-    placeKnob (unisonSpread, 456, y1 + 184, kKnobW, kDialH, s);
-    placeKnob (harmTilt,     536, y1 + 184, kKnobW, kDialH, s);
+    // ---------- Filtro: tipo, display de respuesta y knobs ----------
+    filterBox.setBounds (S (784), S (91), S (129), S (24));
+    filterDisplay.setBounds (S (744), S (127), S (228), S (83));   // mismo tamano que el display de onda
 
-    // ---------- Filtro + filter env ----------
-    filterBox.setBounds (S (84), S (y2 + 4), S (130), S (24));
-    placeKnob (cutoff,   24,  y2 + 32, kKnobW, kDialH, s);
-    placeKnob (reso,     104, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (envAmt,   184, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (fAttack,  284, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (fDecay,   364, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (fSustain, 444, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (fRelease, 524, y2 + 32, kKnobW, kDialH, s);
+    placeKnob (cutoff, 733, kMidY, kKnobW, kDialH, s);
+    placeKnob (reso,   813, kMidY, kKnobW, kDialH, s);
+    placeKnob (envAmt, 893, kMidY, kKnobW, kDialH, s);
 
-    // ---------- Amp env ----------
-    placeKnob (attack,  640, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (decay,   720, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (sustain, 800, y2 + 32, kKnobW, kDialH, s);
-    placeKnob (release, 880, y2 + 32, kKnobW, kDialH, s);
+    // ---------- Fila inferior: AMP ENV, OUTPUT y FILTER ENV ----------
+    placeKnob (attack,  12,  kBottomY, kKnobW, kDialH, s);
+    placeKnob (decay,   92,  kBottomY, kKnobW, kDialH, s);
+    placeKnob (sustain, 172, kBottomY, kKnobW, kDialH, s);
+    placeKnob (release, 252, kBottomY, kKnobW, kDialH, s);
+
+    placeKnob (volume, 447, kBottomY, kKnobW, kDialH, s);
+
+    placeKnob (fAttack,  657, kBottomY, kKnobW, kDialH, s);
+    placeKnob (fDecay,   737, kBottomY, kKnobW, kDialH, s);
+    placeKnob (fSustain, 817, kBottomY, kKnobW, kDialH, s);
+    placeKnob (fRelease, 897, kBottomY, kKnobW, kDialH, s);
 
     // ---------- Pestana LFOs ----------
     for (int i = 0; i < kNumLfos; ++i)

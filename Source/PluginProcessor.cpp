@@ -60,6 +60,10 @@ MiSinteProcessor::MiSinteProcessor()
     }
 
     vp.bpm        = &hostBpm;
+    vp.dispCutoff  = &filterDisplay.cutoff;
+    vp.dispReso    = &filterDisplay.reso;
+    vp.dispWrites  = &filterDisplay.writes;
+    vp.noteCounter = &noteCounter;
     vp.lastNote   = &lastNote;
 
     for (int i = 0; i < kNumVoices; ++i)
@@ -238,6 +242,7 @@ MiSinteProcessor::createLayout()
 void MiSinteProcessor::prepareToPlay (double sampleRate, int)
 {
     synth.setCurrentPlaybackSampleRate (sampleRate);
+    filterDisplay.sampleRate.store ((float) sampleRate);
     lastGain = apvts.getRawParameterValue ("volume")->load();
 }
 

@@ -61,6 +61,12 @@ struct VoiceParams
 
     // Ultima nota tocada (compartida por todas las voces, para el glide)
     std::atomic<float>* lastNote = nullptr;
+
+    // Display del filtro: la nota mas reciente publica su cutoff y reso efectivos
+    std::atomic<float>* dispCutoff  = nullptr;
+    std::atomic<float>* dispReso    = nullptr;
+    std::atomic<int>*   dispWrites  = nullptr;
+    std::atomic<int>*   noteCounter = nullptr;
 };
 
 struct SynthSound : public juce::SynthesiserSound
@@ -103,6 +109,7 @@ public:
         const double last = (double) params.lastNote->load();
         glideNote = (glideTime > 0.0005 && last >= 0.0) ? last : targetNote;
         params.lastNote->store ((float) midiNote);
+        noteId = params.noteCounter->fetch_add (1, std::memory_order_relaxed) + 1;
 
         // Fase inicial: aleatoria en unison (sonido mas grueso) o 0 si RESET esta activo
         const int n = juce::jlimit (1, kMaxUnison, (int) params.unison->load());
@@ -234,6 +241,15 @@ public:
                 const double fc = juce::jlimit (20.0, 0.45 * sr, cutoff * mod);
                 g = std::tan (juce::MathConstants<double>::pi * fc / sr);
                 h = 1.0 / (1.0 + g * (g + k));
+
+                // Publica el cutoff y la reso efectivos para el display del filtro
+                // (solo la nota mas reciente; son escrituras atomicas, sin bloqueos)
+                if (noteId == params.noteCounter->load (std::memory_order_relaxed))
+                {
+                    params.dispCutoff->store ((float) fc, std::memory_order_relaxed);
+                    params.dispReso->store ((float) resoEff, std::memory_order_relaxed);
+                    params.dispWrites->fetch_add (1, std::memory_order_relaxed);
+                }
             }
 
             double sumL = 0.0, sumR = 0.0;
@@ -645,4 +661,5 @@ private:
     double sL1 = 0.0, sL2 = 0.0, sR1 = 0.0, sR2 = 0.0;
     double g = 0.0, h = 1.0, k = 1.0;
     int coefCounter = 0;
+    int noteId = 0;
 };

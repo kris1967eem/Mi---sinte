@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include "SynthVoice.h"
+#include "FilterResponseDisplay.h"
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -37,6 +38,9 @@ public:
     bool loadLfoWave (int index, const juce::File& file);
     juce::String getLfoWaveName (int index) const;
 
+    // Datos que el display del filtro lee para mostrar la modulacion en tiempo real
+    FilterDisplayState& getFilterDisplay() { return filterDisplay; }
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -45,6 +49,8 @@ private:
     float lastGain = 0.7f;
     std::atomic<float> lastNote { -1.0f };
     std::atomic<float> hostBpm { 120.0f };
+    std::atomic<int> noteCounter { 0 };
+    FilterDisplayState filterDisplay;
 
     std::array<std::atomic<float>, kLfoTableSize> lfoTables[kNumLfos];
     juce::String lfoWaveName[kNumLfos];

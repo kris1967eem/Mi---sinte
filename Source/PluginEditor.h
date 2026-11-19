@@ -1,6 +1,7 @@
 #pragma once
 #include "PluginProcessor.h"
 #include "WaveformDisplay.h"
+#include "FilterResponseDisplay.h"
 
 class MiSinteEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -54,6 +55,7 @@ private:
 
     // --- Pagina OSC: oscilador ---
     WaveformDisplay waveDisplay;
+    FilterResponseDisplay filterDisplay;
     juce::TextButton syncBtn, resetBtn;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncA, resetA;
     Knob pulseWidth, syncFreq, octave, semi, fine, glide, drift, volume;
