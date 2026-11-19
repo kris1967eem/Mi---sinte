@@ -86,7 +86,7 @@ private:
         switch (type)
         {
             case 0:  return std::sin (ph * juce::MathConstants<float>::twoPi);
-            case 1:  return 4.0f * std::abs (ph - 0.5f) - 1.0f;
+            case 1:  return ph < 0.25f ? 4.0f * ph : (ph < 0.75f ? 2.0f - 4.0f * ph : 4.0f * ph - 4.0f);
             case 2:  return 2.0f * ph - 1.0f;
             default: return ph < pw ? 1.0f : -1.0f;
         }
