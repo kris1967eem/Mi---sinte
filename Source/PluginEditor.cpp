@@ -311,6 +311,9 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     u.retrig.setButtonText ("RETRIG");
     addToPage (1, u.retrig);
 
+    u.poly.setButtonText ("POLY");
+    addToPage (1, u.poly);
+
     u.loadBtn.setButtonText ("LOAD...");
     u.loadBtn.onClick = [this, index] { chooseLfoWave (index); };
     addToPage (1, u.loadBtn);
@@ -330,6 +333,8 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
         proc.apvts, "lfo" + n + "sync", u.sync);
     u.retrigA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         proc.apvts, "lfo" + n + "retrig", u.retrig);
+    u.polyA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        proc.apvts, "lfo" + n + "poly", u.poly);
 
     setupKnob (u.rate,  "RATE",    "lfo" + n + "rate",  " Hz", 2, kCyan, 1);
     setupKnob (u.amt,   "AMOUNT",  "lfo" + n + "amt",   "", 2, kCyan, 1);
@@ -397,7 +402,8 @@ void MiSinteEditor::layoutLfo (LfoUI& u, int index, float s)
     u.title.setFont (juce::Font (juce::FontOptions (16.0f * s, juce::Font::bold)));
     u.title.setBounds (S (bx), S (by), S (60), S (26));
     u.retrig.setBounds (S (bx + 66), S (by), S (84), S (26));
-    u.loadBtn.setBounds (S (bx + 156), S (by), S (70), S (26));
+    u.poly.setBounds (S (bx + 154), S (by), S (68), S (26));
+    u.loadBtn.setBounds (S (bx + 228), S (by), S (70), S (26));
 
     scaleLabel (u.waveL, s);
     scaleLabel (u.destL, s);

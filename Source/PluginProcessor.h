@@ -59,6 +59,7 @@ private:
     std::atomic<float> hostBpm { 120.0f };
     std::atomic<int> noteCounter { 0 };
     FilterDisplayState filterDisplay;
+    GlobalLfoBank globalLfo;      // LFOs con POLY apagado (uno solo para todas las voces)
     UserChord userChord;
     ChordCapture chordCapture;
 

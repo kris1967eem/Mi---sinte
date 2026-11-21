@@ -57,6 +57,7 @@ MiSinteProcessor::MiSinteProcessor()
         vp.lfoRetrig[i]     = apvts.getRawParameterValue ("lfo" + n + "retrig");
         vp.lfoFade[i]       = apvts.getRawParameterValue ("lfo" + n + "fade");
         vp.lfoPhaseStart[i] = apvts.getRawParameterValue ("lfo" + n + "phase");
+        vp.lfoPoly[i]       = apvts.getRawParameterValue ("lfo" + n + "poly");
         vp.lfoTable[i]      = lfoTables[i].data();
     }
 
@@ -68,6 +69,10 @@ MiSinteProcessor::MiSinteProcessor()
     vp.chordIntervals = userChord.intervalsData();
     vp.chordCount     = userChord.countPtr();
     vp.lastNote   = &lastNote;
+
+    // LFOs globales (POLY apagado): los calcula el procesador y las voces los leen
+    globalLfo.setParams (vp);
+    vp.globalLfo = &globalLfo;
 
     for (int i = 0; i < kNumVoices; ++i)
         synth.addVoice (new SynthVoice (vp));
@@ -237,6 +242,11 @@ MiSinteProcessor::createLayout()
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { "lfo" + n + "fade", 1 }, name + "Fade In",
             NormalisableRange<float> (0.0f, 5.0f, 0.0f, 0.5f), 0.0f));
+
+        // POLY activado = un LFO por voz (comportamiento anterior, por defecto).
+        // POLY apagado = un unico LFO global compartido por todas las voces.
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { "lfo" + n + "poly", 1 }, name + "Poly", true));
     }
 
     return layout;
@@ -245,6 +255,7 @@ MiSinteProcessor::createLayout()
 void MiSinteProcessor::prepareToPlay (double sampleRate, int)
 {
     synth.setCurrentPlaybackSampleRate (sampleRate);
+    globalLfo.prepare (sampleRate);
     filterDisplay.sampleRate.store ((float) sampleRate);
     lastGain = apvts.getRawParameterValue ("volume")->load();
 }
@@ -268,6 +279,33 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // Captura de acorde (boton CAPTURE): lee las notas entrantes antes de tocarlas
     chordCapture.process (midi, buffer.getNumSamples(), getSampleRate(), userChord);
+
+    // LFOs globales: se calculan una vez por bloque, antes de que las voces los lean.
+    // Con Retrig, la primera nota que llega cuando no suena ninguna voz reinicia su fase.
+    int retrigSample = -1;
+    bool anyVoiceSounding = false;
+    for (int i = 0; i < synth.getNumVoices(); ++i)
+    {
+        if (synth.getVoice (i)->isVoiceActive())
+        {
+            anyVoiceSounding = true;
+            break;
+        }
+    }
+
+    if (! anyVoiceSounding)
+    {
+        for (const auto metadata : midi)
+        {
+            if (metadata.getMessage().isNoteOn())
+            {
+                retrigSample = metadata.samplePosition;
+                break;
+            }
+        }
+    }
+
+    globalLfo.renderBlock (buffer.getNumSamples(), retrigSample);
 
     synth.renderNextBlock (buffer, midi, 0, buffer.getNumSamples());
 

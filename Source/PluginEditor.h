@@ -25,11 +25,11 @@ private:
     {
         juce::Label title, waveL, destL, syncL, waveName;
         juce::ComboBox wave, dest, sync;
-        juce::ToggleButton retrig;
+        juce::ToggleButton retrig, poly;
         juce::TextButton loadBtn;
         Knob rate, amt, fade, phase;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveA, destA, syncA;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> retrigA;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> retrigA, polyA;
     };
 
     void timerCallback() override;

@@ -1,11 +1,35 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
 #include <atomic>
 #include <cmath>
 
 // Tamano de las tablas de onda de usuario de los LFO (potencia de 2)
 constexpr int kLfoTableSize = 2048;
 constexpr int kNumLfos = 4;
+
+// Los LFOs (de voz y globales) se actualizan cada 16 muestras (tasa de control)
+constexpr int kLfoControlRate = 16;
+
+// Maximo de pasos de control que guarda el LFO global por bloque (2048 x 16 = 32768 muestras)
+constexpr int kMaxGlobalSteps = 2048;
+
+// Sync de los LFO: duracion de un ciclo en negras (0 = modo libre).
+// FREE, 8/1, 4/1, 2/1, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32,
+// y los mismos en tresillo: 8/1T, 4/1T, 2/1T, 1/1T, 1/2T, 1/4T, 1/8T, 1/16T, 1/32T
+inline constexpr int kNumLfoSyncs = 19;
+inline constexpr double kLfoBeats[kNumLfoSyncs] =
+{
+    1.0,
+    32.0, 16.0, 8.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125,
+    64.0 / 3.0, 32.0 / 3.0, 16.0 / 3.0, 8.0 / 3.0, 4.0 / 3.0,
+    2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0
+};
+
+// Destinos de LFO: 8..11 = LFO 1..4 RATE
+inline constexpr int kLfoDestFirstRate = 8;
+
+struct GlobalLfoBank;
 
 // Punteros a los parametros (los lee la voz en cada bloque de audio)
 struct VoiceParams
@@ -54,10 +78,14 @@ struct VoiceParams
     std::atomic<float>* lfoRetrig[kNumLfos]     {};
     std::atomic<float>* lfoFade[kNumLfos]       {};
     std::atomic<float>* lfoPhaseStart[kNumLfos] {};   // grados
+    std::atomic<float>* lfoPoly[kNumLfos]       {};   // POLY: 1 = un LFO por voz, 0 = LFO global
     const std::atomic<float>* lfoTable[kNumLfos] {};  // onda de usuario de cada LFO
 
     // Tempo del host (para el sync de los LFO)
     std::atomic<float>* bpm = nullptr;
+
+    // LFOs globales (los que tienen POLY apagado): los calcula el procesador y todas las voces los leen
+    const GlobalLfoBank* globalLfo = nullptr;
 
     // Ultima nota tocada (compartida por todas las voces, para el glide)
     std::atomic<float>* lastNote = nullptr;
@@ -71,6 +99,156 @@ struct VoiceParams
     // Acorde de usuario (modo CHORD): intervalos en semitonos y numero de notas
     const std::atomic<int>* chordIntervals = nullptr;
     const std::atomic<int>* chordCount     = nullptr;
+};
+
+// Lee la onda de usuario de un LFO (tabla de un ciclo, con interpolacion)
+inline double readLfoTable (const std::atomic<float>* t, double ph)
+{
+    if (t == nullptr)
+        return 0.0;
+
+    const double pos = ph * (double) kLfoTableSize;
+    const int i0 = (int) pos & (kLfoTableSize - 1);
+    const int i1 = (i0 + 1) & (kLfoTableSize - 1);
+    const double fr = pos - std::floor (pos);
+    const double a = (double) t[i0].load (std::memory_order_relaxed);
+    const double b = (double) t[i1].load (std::memory_order_relaxed);
+    return a + (b - a) * fr;
+}
+
+// Forma de onda de un LFO (compartida por los LFOs de voz y los globales).
+// ph entre 0 y 1; hold es el valor actual del RANDOM (sample & hold).
+inline double lfoShape (int wave, double ph, double hold, const std::atomic<float>* table)
+{
+    switch (wave)
+    {
+        case 0:  return std::sin (juce::MathConstants<double>::twoPi * ph);
+        case 1:  return ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0);   // triangulo (sube desde 0)
+        case 2:  return 2.0 * ph - 1.0;
+        case 3:  return ph < 0.5 ? 1.0 : -1.0;
+        case 5:  return readLfoTable (table, ph);   // onda de usuario
+        default: return hold;                        // random (sample & hold)
+    }
+}
+
+// LFOs globales (POLY apagado). El procesador los avanza una vez por bloque de audio y guarda
+// su valor cada 16 muestras; todas las voces leen el mismo valor para la misma posicion del bloque,
+// asi todo un acorde se modula al unisono, sin desfases entre notas.
+//
+//  - Retrig: solo reinicia la fase (a PHASE) al tocar la primera nota cuando no sonaba ninguna voz.
+//  - Fade In: sigue siendo por nota (lo aplica cada voz sobre la profundidad de la modulacion).
+//  - Rate: un LFO global solo recibe modulacion de RATE de otros LFOs globales (un LFO global
+//    tiene una unica velocidad; un LFO POLY tiene un valor distinto en cada voz).
+struct GlobalLfoBank
+{
+    void setParams (const VoiceParams& p) { params = p; }
+
+    void prepare (double sr)
+    {
+        if (sr > 0.0)
+            sampleRate = sr;
+
+        for (int l = 0; l < kNumLfos; ++l)
+        {
+            phase[l] = 0.25;
+            hold[l] = 0.0;
+            rateOct[l] = 0.0;
+            values[l].fill (0.0f);
+        }
+        numSteps = 1;
+    }
+
+    // Calcula los valores de los LFOs globales para un bloque de numSamples muestras.
+    // retrigSample: posicion de la primera nota del bloque si no sonaba ninguna voz (o -1).
+    void renderBlock (int numSamples, int retrigSample)
+    {
+        if (numSamples <= 0)
+            return;
+
+        const double hostBpm = (double) params.bpm->load();
+        const double bpm = hostBpm > 1.0 ? hostBpm : 120.0;
+
+        struct Cfg { bool global; bool retrig; int wave, sync, dest; double rate, amt, startPhase; };
+        Cfg cfg[kNumLfos];
+        for (int l = 0; l < kNumLfos; ++l)
+        {
+            cfg[l].global     = params.lfoPoly[l]->load() < 0.5f;
+            cfg[l].retrig     = params.lfoRetrig[l]->load() > 0.5f;
+            cfg[l].wave       = (int) params.lfoWave[l]->load();
+            cfg[l].sync       = juce::jlimit (0, kNumLfoSyncs - 1, (int) params.lfoSync[l]->load());
+            cfg[l].dest       = (int) params.lfoDest[l]->load();
+            cfg[l].rate       = (double) params.lfoRate[l]->load();
+            cfg[l].amt        = (double) params.lfoAmt[l]->load();
+            cfg[l].startPhase = (double) params.lfoPhaseStart[l]->load() / 360.0;
+            cfg[l].startPhase -= std::floor (cfg[l].startPhase);
+        }
+
+        const int steps = juce::jmin (kMaxGlobalSteps, (numSamples + kLfoControlRate - 1) / kLfoControlRate);
+        const int retrigStep = (retrigSample >= 0) ? retrigSample / kLfoControlRate : -1;
+
+        for (int s = 0; s < steps; ++s)
+        {
+            // Muestras que cubre este paso (el ultimo cubre lo que quede del bloque)
+            const int remaining = numSamples - s * kLfoControlRate;
+            const int span = (s == steps - 1) ? remaining : juce::jmin (kLfoControlRate, remaining);
+            const double dtSec = (double) span / sampleRate;
+
+            double rateNew[kNumLfos] = {};
+
+            for (int l = 0; l < kNumLfos; ++l)
+            {
+                const auto& c = cfg[l];
+                if (! c.global)
+                    continue;
+
+                if (s == retrigStep && c.retrig)
+                {
+                    phase[l] = c.startPhase;
+                    hold[l] = (double) random.nextFloat() * 2.0 - 1.0;
+                }
+
+                const double v = lfoShape (c.wave, phase[l], hold[l], params.lfoTable[l]);
+                values[l][(size_t) s] = (float) v;
+
+                double hz = c.rate;
+                if (c.sync > 0)
+                    hz = (bpm / 60.0) / kLfoBeats[c.sync];
+                hz *= std::exp2 (rateOct[l]);   // modulacion de Rate por otros LFOs globales
+
+                phase[l] += hz * dtSec;
+                if (phase[l] >= 1.0)
+                {
+                    phase[l] -= std::floor (phase[l]);
+                    hold[l] = (double) random.nextFloat() * 2.0 - 1.0;
+                }
+
+                if (c.dest >= kLfoDestFirstRate && c.dest < kLfoDestFirstRate + kNumLfos)
+                    rateNew[c.dest - kLfoDestFirstRate] += v * c.amt * 3.0;   // +/- 3 octavas
+            }
+
+            for (int l = 0; l < kNumLfos; ++l)
+                rateOct[l] = rateNew[l];
+        }
+
+        numSteps = steps;
+    }
+
+    // Valor (entre -1 y 1, sin Amount ni Fade) del LFO l en la posicion de muestra dada del bloque actual
+    float getValue (int l, int samplePos) const
+    {
+        const int idx = juce::jlimit (0, numSteps - 1, samplePos / kLfoControlRate);
+        return values[l][(size_t) idx];
+    }
+
+private:
+    VoiceParams params;
+    double sampleRate = 44100.0;
+    double phase[kNumLfos] {};
+    double hold[kNumLfos] {};
+    double rateOct[kNumLfos] {};
+    int numSteps = 1;
+    juce::Random random;
+    std::array<float, kMaxGlobalSteps> values[kNumLfos] {};
 };
 
 struct SynthSound : public juce::SynthesiserSound
@@ -251,7 +429,9 @@ public:
             gainL[u] = gainR[u] = 0.0f;
         }
 
-        // LFOs: con Retrig la fase empieza en el valor de Phase en cada nota
+        // LFOs: con Retrig la fase empieza en el valor de Phase en cada nota.
+        // (Solo la usan los LFOs en modo POLY; los globales leen el LFO del procesador,
+        // pero el Fade In de la nota cuenta siempre desde aqui.)
         for (int l = 0; l < kNumLfos; ++l)
         {
             lfoPhase[l] = (params.lfoRetrig[l]->load() > 0.5f)
@@ -331,11 +511,12 @@ public:
         {
             auto& c = lfo[l];
             c.wave = (int) params.lfoWave[l]->load();
-            c.sync = juce::jlimit (0, kNumSyncs - 1, (int) params.lfoSync[l]->load());
+            c.sync = juce::jlimit (0, kNumLfoSyncs - 1, (int) params.lfoSync[l]->load());
             c.dest = (int) params.lfoDest[l]->load();
             c.rate = (double) params.lfoRate[l]->load();
             c.amt  = (double) params.lfoAmt[l]->load();
             c.fade = (double) params.lfoFade[l]->load();
+            c.poly = params.lfoPoly[l]->load() > 0.5f;
         }
 
         for (int i = 0; i < numSamples; ++i)
@@ -353,7 +534,7 @@ public:
             if (coefCounter-- <= 0)
             {
                 coefCounter = 15;
-                updateLfos (sr);
+                updateLfos (sr, startSample + i);
 
                 pwNow = juce::jlimit (0.05, 0.95, pwBase + lfoPw);
                 syncRatio = std::exp2 (juce::jlimit (0.0, 36.0, syncBase + lfoSyncSemis) / 12.0);
@@ -467,18 +648,6 @@ private:
         {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 }
     };
 
-    // Sync de los LFO: duracion de un ciclo en negras (0 = modo libre).
-    // FREE, 8/1, 4/1, 2/1, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32,
-    // y los mismos en tresillo: 8/1T, 4/1T, 2/1T, 1/1T, 1/2T, 1/4T, 1/8T, 1/16T, 1/32T
-    static constexpr int kNumSyncs = 19;
-    static constexpr double kBeats[kNumSyncs] =
-    {
-        1.0,
-        32.0, 16.0, 8.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125,
-        64.0 / 3.0, 32.0 / 3.0, 16.0 / 3.0, 8.0 / 3.0, 4.0 / 3.0,
-        2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0
-    };
-
     // Destinos de los LFO
     static constexpr int kDestPitch    = 1;
     static constexpr int kDestCutoff   = 2;
@@ -487,28 +656,13 @@ private:
     static constexpr int kDestDetune   = 5;
     static constexpr int kDestPW       = 6;
     static constexpr int kDestSyncFreq = 7;
-    static constexpr int kDestLfoRate  = 8;   // 8..11 = LFO 1..4 RATE
+    static constexpr int kDestLfoRate  = kLfoDestFirstRate;   // 8..11 = LFO 1..4 RATE
 
     static double frac (double x) { return x - std::floor (x); }
 
-    // Lee la onda de usuario de un LFO (tabla de un ciclo, con interpolacion)
-    double readTable (int l, double ph) const
-    {
-        const auto* t = params.lfoTable[l];
-        if (t == nullptr)
-            return 0.0;
-
-        const double pos = ph * (double) kLfoTableSize;
-        const int i0 = (int) pos & (kLfoTableSize - 1);
-        const int i1 = (i0 + 1) & (kLfoTableSize - 1);
-        const double fr = pos - std::floor (pos);
-        const double a = (double) t[i0].load (std::memory_order_relaxed);
-        const double b = (double) t[i1].load (std::memory_order_relaxed);
-        return a + (b - a) * fr;
-    }
-
-    // Avanza los LFO y calcula su efecto sobre cada destino
-    void updateLfos (double sr)
+    // Avanza los LFO y calcula su efecto sobre cada destino.
+    // samplePos: posicion de esta actualizacion dentro del bloque de audio (para leer los LFOs globales).
+    void updateLfos (double sr, int samplePos)
     {
         lfoAge += 16.0 / sr;
 
@@ -519,29 +673,29 @@ private:
         for (int l = 0; l < kNumLfos; ++l)
         {
             const auto& c = lfo[l];
-
-            double hz = c.rate;
-            if (c.sync > 0)
-                hz = (bpm / 60.0) / kBeats[c.sync];
-            hz *= std::exp2 (lfoRateOct[l]);   // modulacion de Rate por otros LFOs
-
-            lfoPhase[l] += hz * 16.0 / sr;
-            if (lfoPhase[l] >= 1.0)
-            {
-                lfoPhase[l] -= std::floor (lfoPhase[l]);
-                lfoHold[l] = (double) random.nextFloat() * 2.0 - 1.0;
-            }
-
-            const double ph = lfoPhase[l];
             double v;
-            switch (c.wave)
+
+            if (c.poly)
             {
-                case 0:  v = std::sin (juce::MathConstants<double>::twoPi * ph); break;
-                case 1:  v = ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0); break;   // triangulo (sube desde 0)
-                case 2:  v = 2.0 * ph - 1.0; break;
-                case 3:  v = ph < 0.5 ? 1.0 : -1.0; break;
-                case 5:  v = readTable (l, ph); break;   // onda de usuario
-                default: v = lfoHold[l]; break;          // random (sample & hold)
+                // POLY: LFO propio de esta voz
+                double hz = c.rate;
+                if (c.sync > 0)
+                    hz = (bpm / 60.0) / kLfoBeats[c.sync];
+                hz *= std::exp2 (lfoRateOct[l]);   // modulacion de Rate por otros LFOs
+
+                lfoPhase[l] += hz * 16.0 / sr;
+                if (lfoPhase[l] >= 1.0)
+                {
+                    lfoPhase[l] -= std::floor (lfoPhase[l]);
+                    lfoHold[l] = (double) random.nextFloat() * 2.0 - 1.0;
+                }
+
+                v = lfoShape (c.wave, lfoPhase[l], lfoHold[l], params.lfoTable[l]);
+            }
+            else
+            {
+                // GLOBAL: el mismo valor para todas las voces (lo calcula el procesador)
+                v = (params.globalLfo != nullptr) ? (double) params.globalLfo->getValue (l, samplePos) : 0.0;
             }
 
             if (c.fade > 0.0005)
@@ -755,6 +909,7 @@ private:
     {
         int wave = 0, sync = 0, dest = 0;
         double rate = 1.0, amt = 0.0, fade = 0.0;
+        bool poly = true;
     };
 
     VoiceParams params;
