@@ -5,6 +5,7 @@
 #include "SynthVoice.h"
 #include "FilterResponseDisplay.h"
 #include "UserChord.h"
+#include "DelayEngine.h"
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -60,6 +61,7 @@ private:
     std::atomic<int> noteCounter { 0 };
     FilterDisplayState filterDisplay;
     GlobalLfoBank globalLfo;      // LFOs con POLY apagado (uno solo para todas las voces)
+    DelayEngine delayEngine { apvts };   // efecto Delay (pestana EFFECTS); la Reverb ira justo despues
     UserChord userChord;
     ChordCapture chordCapture;
 

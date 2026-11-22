@@ -249,13 +249,17 @@ MiSinteProcessor::createLayout()
             ParameterID { "lfo" + n + "poly", 1 }, name + "Poly", true));
     }
 
+    // --- Effects: Delay ---
+    DelayParams::addDelayParameters (layout);
+
     return layout;
 }
 
-void MiSinteProcessor::prepareToPlay (double sampleRate, int)
+void MiSinteProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     synth.setCurrentPlaybackSampleRate (sampleRate);
     globalLfo.prepare (sampleRate);
+    delayEngine.prepare (sampleRate, samplesPerBlock);
     filterDisplay.sampleRate.store ((float) sampleRate);
     lastGain = apvts.getRawParameterValue ("volume")->load();
 }
@@ -312,6 +316,9 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float gain = apvts.getRawParameterValue ("volume")->load();
     buffer.applyGainRamp (0, buffer.getNumSamples(), lastGain, gain);
     lastGain = gain;
+
+    // Efectos, en cadena detras del sintetizador (hoy solo el Delay; la Reverb ira justo despues)
+    delayEngine.process (buffer, (double) hostBpm.load());
 }
 
 juce::AudioProcessorEditor* MiSinteProcessor::createEditor()

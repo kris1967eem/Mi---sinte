@@ -2,6 +2,7 @@
 #include "PluginProcessor.h"
 #include "WaveformDisplay.h"
 #include "FilterResponseDisplay.h"
+#include "DelayEditorComponent.h"
 
 class MiSinteEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -50,10 +51,10 @@ private:
 
     MiSinteProcessor& proc;
     int currentPage = 0;
-    std::vector<juce::Component*> pages[2];
+    std::vector<juce::Component*> pages[3];
     std::unique_ptr<juce::FileChooser> chooser;
 
-    juce::TextButton pageOscBtn, pageLfoBtn;
+    juce::TextButton pageOscBtn, pageLfoBtn, pageFxBtn;
 
     // --- Pagina OSC: oscilador ---
     WaveformDisplay waveDisplay;
@@ -81,6 +82,9 @@ private:
 
     // --- Pagina LFOs ---
     LfoUI lfoUI[kNumLfos];
+
+    // --- Pagina EFFECTS (por ahora el Delay; aqui se anadiran los demas efectos) ---
+    DelayEditorComponent delayEditor;
 
     // Estado para atenuar los knobs que no aplican
     std::atomic<float>* waveRaw = nullptr;

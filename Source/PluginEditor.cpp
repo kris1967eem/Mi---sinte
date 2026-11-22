@@ -38,7 +38,8 @@ namespace
 
 MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     : AudioProcessorEditor (&p), proc (p),
-      waveDisplay (p.apvts), filterDisplay (p.apvts, p.getFilterDisplay())
+      waveDisplay (p.apvts), filterDisplay (p.apvts, p.getFilterDisplay()),
+      delayEditor (p.apvts)
 {
     waveRaw = proc.apvts.getRawParameterValue ("wave");
     syncRaw = proc.apvts.getRawParameterValue ("oscsync");
@@ -47,7 +48,8 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     // --- Pestanas ---
     pageOscBtn.setButtonText ("OSC");
     pageLfoBtn.setButtonText ("LFOs");
-    for (auto* b : { &pageOscBtn, &pageLfoBtn })
+    pageFxBtn.setButtonText ("EFFECTS");
+    for (auto* b : { &pageOscBtn, &pageLfoBtn, &pageFxBtn })
     {
         b->setClickingTogglesState (true);
         b->setRadioGroupId (1001);
@@ -57,6 +59,7 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     pageOscBtn.setToggleState (true, juce::dontSendNotification);
     pageOscBtn.onClick = [this] { showPage (0); };
     pageLfoBtn.onClick = [this] { showPage (1); };
+    pageFxBtn.onClick  = [this] { showPage (2); };
 
     // --- Oscilador ---
     addToPage (0, waveDisplay);
@@ -143,6 +146,9 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     // --- LFOs ---
     for (int i = 0; i < kNumLfos; ++i)
         setupLfo (lfoUI[i], i);
+
+    // --- Pagina EFFECTS ---
+    addToPage (2, delayEditor);
 
     showPage (0);
 
@@ -249,12 +255,13 @@ void MiSinteEditor::addToPage (int page, juce::Component& c)
 void MiSinteEditor::showPage (int page)
 {
     currentPage = page;
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < 3; ++i)
         for (auto* c : pages[i])
             c->setVisible (i == page);
 
     pageOscBtn.setToggleState (page == 0, juce::dontSendNotification);
     pageLfoBtn.setToggleState (page == 1, juce::dontSendNotification);
+    pageFxBtn.setToggleState (page == 2, juce::dontSendNotification);
     updateChordControls();
     repaint();
 }
@@ -442,7 +449,7 @@ void MiSinteEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff15161a));
     g.fillRect (0, 0, getWidth(), S (kTop - 1));
     g.setColour (juce::Colour (0xff101115));
-    g.fillRoundedRectangle ((float) S (290), (float) S (10), (float) S (261), (float) S (33), 6.0f * s);
+    g.fillRoundedRectangle ((float) S (290), (float) S (10), (float) S (274), (float) S (33), 6.0f * s);
     g.setColour (lineColour);
     g.drawHorizontalLine (S (kTop - 1), 0.0f, (float) getWidth());
 
@@ -489,7 +496,7 @@ void MiSinteEditor::paint (juce::Graphics& g)
         caption ("OUTPUT", 447, 388, 100);
         caption ("FILTER ENV", 657, 386, 100);
     }
-    else
+    else if (currentPage == 1)
     {
         // Separadores entre los 4 LFOs
         g.setColour (lineColour);
@@ -533,6 +540,7 @@ void MiSinteEditor::resized()
 
     pageOscBtn.setBounds (S (297), S (13), S (79), S (26));
     pageLfoBtn.setBounds (S (382), S (13), S (80), S (26));
+    pageFxBtn.setBounds (S (467), S (13), S (90), S (26));
 
     // ---------- Oscilador: display de onda, PW, FREQ, SYNC y RESET ----------
     waveDisplay.setBounds (S (44), S (127), S (228), S (83));
@@ -583,4 +591,7 @@ void MiSinteEditor::resized()
     // ---------- Pestana LFOs ----------
     for (int i = 0; i < kNumLfos; ++i)
         layoutLfo (lfoUI[i], i, s);
+
+    // ---------- Pestana EFFECTS: el Delay ocupa la parte superior; debajo quedara sitio para la Reverb ----------
+    delayEditor.setBounds (0, S (kTop), S (kDesignW), S (DelayEditorComponent::kDesignH));
 }
