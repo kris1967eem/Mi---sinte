@@ -148,6 +148,13 @@ public:
         return readLagrange ((float) delay);
     }
 
+    // Muestra con indice absoluto 'index' (debe estar ya escrita y dentro de lo guardado; sin comprobaciones).
+    // La usan los lectores que ya han calculado sus propios coeficientes de interpolacion.
+    float getSampleAbsolute (std::int64_t index) const noexcept
+    {
+        return data[(size_t) ((std::uint64_t) index & mask)];
+    }
+
     // Retardo (en muestras) que corresponde a una posicion absoluta.
     float absoluteToDelay (double position) const noexcept
     {

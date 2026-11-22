@@ -5,7 +5,7 @@
 #include "SynthVoice.h"
 #include "FilterResponseDisplay.h"
 #include "UserChord.h"
-#include "DelayEngine.h"
+#include "EffectChain.h"
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -50,6 +50,11 @@ public:
     bool isChordCaptureArmed() const { return chordCapture.isArmed(); }
     bool loadChordFromMidi (const juce::File& file);
 
+    // Cadena de efectos (pestana EFFECTS) y medidores de CPU para la interfaz
+    EffectChain& getEffectChain() noexcept { return effectChain; }
+    const CpuMeter& getSynthCpuMeter() const noexcept { return cpuSynth; }
+    const CpuMeter& getTotalCpuMeter() const noexcept { return cpuTotal; }
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -61,7 +66,8 @@ private:
     std::atomic<int> noteCounter { 0 };
     FilterDisplayState filterDisplay;
     GlobalLfoBank globalLfo;      // LFOs con POLY apagado (uno solo para todas las voces)
-    DelayEngine delayEngine { apvts };   // efecto Delay (pestana EFFECTS); la Reverb ira justo despues
+    EffectChain effectChain { apvts };   // cadena de efectos reordenable (hoy: Delay; el resto, reservado)
+    CpuMeter cpuSynth, cpuTotal;         // CPU del sintetizador y de todo processBlock
     UserChord userChord;
     ChordCapture chordCapture;
 

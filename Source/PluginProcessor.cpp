@@ -259,7 +259,9 @@ void MiSinteProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     synth.setCurrentPlaybackSampleRate (sampleRate);
     globalLfo.prepare (sampleRate);
-    delayEngine.prepare (sampleRate, samplesPerBlock);
+    effectChain.prepare (sampleRate, samplesPerBlock);
+    cpuSynth.reset();
+    cpuTotal.reset();
     filterDisplay.sampleRate.store ((float) sampleRate);
     lastGain = apvts.getRawParameterValue ("volume")->load();
 }
@@ -273,6 +275,7 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                      juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    cpuTotal.begin();
     buffer.clear();
 
     // Tempo del host, para los LFO sincronizados
@@ -309,6 +312,7 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    cpuSynth.begin();
     globalLfo.renderBlock (buffer.getNumSamples(), retrigSample);
 
     synth.renderNextBlock (buffer, midi, 0, buffer.getNumSamples());
@@ -316,9 +320,14 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float gain = apvts.getRawParameterValue ("volume")->load();
     buffer.applyGainRamp (0, buffer.getNumSamples(), lastGain, gain);
     lastGain = gain;
+    cpuSynth.end();
 
-    // Efectos, en cadena detras del sintetizador (hoy solo el Delay; la Reverb ira justo despues)
-    delayEngine.process (buffer, (double) hostBpm.load());
+    // Cadena de efectos (orden reordenable desde la pestana EFFECTS)
+    effectChain.process (buffer, (double) hostBpm.load());
+
+    cpuTotal.end();
+    cpuSynth.publish (buffer.getNumSamples(), getSampleRate());
+    cpuTotal.publish (buffer.getNumSamples(), getSampleRate());
 }
 
 juce::AudioProcessorEditor* MiSinteProcessor::createEditor()
@@ -348,6 +357,7 @@ void MiSinteProcessor::getStateInformation (juce::MemoryBlock& destData)
     }
 
     state.setProperty ("userChord", userChord.toText(), nullptr);
+    state.setProperty ("fxOrder", EffectOrderUtil::toText (effectChain.getOrder()), nullptr);
 
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
@@ -360,6 +370,13 @@ void MiSinteProcessor::setStateInformation (const void* data, int size)
     {
         const auto tree = juce::ValueTree::fromXml (*xml);
         apvts.replaceState (tree);
+
+        // Orden de la cadena de efectos (en proyectos antiguos, sin esa propiedad, o si esta corrupta: orden por defecto)
+        EffectOrder fxOrder;
+        if (tree.hasProperty ("fxOrder") && EffectOrderUtil::fromText (tree.getProperty ("fxOrder").toString(), fxOrder))
+            effectChain.setOrder (fxOrder);
+        else
+            effectChain.resetOrder();
 
         // Recupera el acorde de usuario
         if (tree.hasProperty ("userChord"))

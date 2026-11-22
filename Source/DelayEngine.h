@@ -33,6 +33,13 @@
 //    - process() no asigna memoria, no usa locks y puede recibir bloques de cualquier tamano.
 //    - Los algoritmos que no suenan no gastan CPU: al activarse empiezan siempre desde silencio.
 //    - Con Delay On apagado el motor no procesa nada (0 % CPU) tras una rampa de 20 ms.
+//    - Dormir en silencio: si no entra audio (< -90 dB) y la salida humeda tambien esta en silencio
+//      durante mas que el bucle mas largo del modo (1 s + 2.5 x el tiempo; 1 s + 6 x en Reverse y Granular;
+//      maximo 45 s), el motor vacia el algoritmo y deja de procesar hasta que vuelva a entrar sonido. Es
+//      inaudible: lo que se descarta esta por debajo de -90 dB. El CPU en reposo cae a casi cero.
+//      Al despertar, los moduladores internos (LFO de Tape, reparto de granos) empiezan de cero.
+//    - Con MIX a 0 (y ya estabilizado) tampoco se procesa: el algoritmo se vacia, asi que al subir MIX
+//      de nuevo los ecos empiezan desde ese momento (no recuerdan el audio anterior).
 //    - Mientras dura un crossfade, un nuevo cambio de modo espera a que termine el anterior.
 // ============================================================================
 class DelayEngine
@@ -101,6 +108,9 @@ public:
         fading = false;
         fadePosition = 0.0f;
         active = false;
+        asleep = false;
+        mixIdle = false;
+        silentSamples = 0;
         activeMode = std::clamp ((int) pMode->load(), 0, kNumDelayModes - 1);
         previousMode = activeMode;
 
@@ -111,6 +121,12 @@ public:
 
     int getCurrentMode() const noexcept { return activeMode; }
     bool isCrossfading() const noexcept { return fading; }
+
+    // True mientras el motor esta dormido (sin audio ni cola) o con MIX a 0: no gasta CPU.
+    bool isIdle() const noexcept { return asleep || mixIdle; }
+
+    // Solo para diagnostico y pruebas: desactiva el "dormir en silencio" (por defecto activado).
+    void setIdleSleepEnabled (bool shouldBeEnabled) noexcept { sleepEnabled = shouldBeEnabled; }
 
     // Procesa un buffer estereo in place. bpm = tempo del host (<= 0 si no hay).
     void process (juce::AudioBuffer<float>& buffer, double bpm) noexcept
@@ -208,6 +224,11 @@ private:
                 active = false;
             }
 
+            asleep = false;
+            awake = false;
+            mixIdle = false;
+            silentSamples = 0;
+
             activeMode = std::clamp ((int) pMode->load(), 0, kNumDelayModes - 1);
             return;
         }
@@ -231,9 +252,60 @@ private:
             fadePosition = 0.0f;
         }
 
-        mixSm.setTargetValue (std::clamp (value (DelayModTarget::Mix), 0.0f, 1.0f));
+        const float mixValue = std::clamp (value (DelayModTarget::Mix), 0.0f, 1.0f);
+        mixSm.setTargetValue (mixValue);
+
+        // Nivel de entrada de este bloque
+        float inputPeak = 0.0f;
+        for (int i = 0; i < n; ++i)
+            inputPeak = std::max (inputPeak, std::max (std::abs (left[i]), std::abs (right[i])));
+
+        // MIX a 0 ya estabilizado: no hay nada que oir del delay -> no se procesa
+        const bool mixOff = mixValue < 0.0001f && ! mixSm.isSmoothing() && mixSm.getCurrentValue() < 0.0001f;
+        mixIdle = mixOff;
+
+        if (mixOff)
+        {
+            if (awake)
+            {
+                for (auto& a : algorithms)
+                    a->reset();
+                fading = false;
+                awake = false;
+            }
+
+            activeMode = targetMode;
+            silentSamples = 0;
+            return;     // la senal seca queda intacta
+        }
+
+        // Dormido: sin entrada nueva no hay nada que procesar; el seco solo recibe la parte de (1 - mix)
+        if (asleep)
+        {
+            if (inputPeak < kSilence)
+            {
+                activeMode = targetMode;
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const float amount = mixSm.getNextValue() * enableSm.getNextValue();
+                    left[i]  *= (1.0f - amount);
+                    right[i] *= (1.0f - amount);
+                }
+                return;
+            }
+
+            // Vuelve el sonido: se despierta desde el estado limpio dejado al dormirse
+            asleep = false;
+            silentSamples = 0;
+            activeMode = targetMode;
+            algorithms[(size_t) activeMode]->reset();
+        }
+
+        awake = true;
 
         const auto params = readParameters (bpm);
+
         algorithms[(size_t) activeMode]->setParameters (params);
         if (fading)
             algorithms[(size_t) previousMode]->setParameters (params);
@@ -246,11 +318,13 @@ private:
             algorithms[(size_t) previousMode]->process (dryL.data(), dryR.data(), wetPrevL.data(), wetPrevR.data(), n);
 
         bool fadeFinished = false;
+        float wetPeak = 0.0f;
 
         for (int i = 0; i < n; ++i)
         {
             float wl = wetCurL[(size_t) i];
             float wr = wetCurR[(size_t) i];
+            wetPeak = std::max (wetPeak, std::max (std::abs (wl), std::abs (wr)));
 
             if (fading)
             {
@@ -276,6 +350,31 @@ private:
         // El modo anterior ya no suena: se vacia para que no guarde restos
         if (fadeFinished)
             algorithms[(size_t) previousMode]->reset();
+
+        // Dormir en silencio: entrada y salida humeda por debajo de -100 dB durante mas que el bucle mas largo
+        if (sleepEnabled && ! fading && inputPeak < kSilence && wetPeak < kSilence)
+        {
+            silentSamples += n;
+
+            // Reverse y Granular leen material de hasta ~5 veces el tiempo; los demas solo recirculan cada T
+            const double longestSeconds = (double) std::max (params.timeMsL, params.timeMsR) * 0.001;
+            const double loopFactor = (activeMode == (int) DelayMode::Reverse || activeMode == (int) DelayMode::Granular) ? 6.0 : 2.5;
+            const double windowSeconds = std::min (45.0, 1.0 + loopFactor * longestSeconds);
+
+            if ((double) silentSamples >= windowSeconds * sampleRate)
+            {
+                for (auto& a : algorithms)
+                    a->reset();
+
+                asleep = true;
+                awake = false;
+                silentSamples = 0;
+            }
+        }
+        else
+        {
+            silentSamples = 0;
+        }
     }
 
     // Parametros del APVTS (punteros atomicos, validos durante toda la vida del procesador)
@@ -302,7 +401,14 @@ private:
     int maxBlock = 512;
 
     Smoothed enableSm, mixSm;
+    static constexpr float kSilence = 3.0e-5f;   // -90 dBFS (por debajo del ruido de 16 bits)
+
     bool active = false;
+    bool asleep = false;
+    bool awake = false;          // el algoritmo activo tiene estado (se ha procesado desde el ultimo reset)
+    bool mixIdle = false;
+    bool sleepEnabled = true;
+    std::int64_t silentSamples = 0;
     bool fading = false;
     float fadePosition = 0.0f;
     float fadeStep = 0.001f;

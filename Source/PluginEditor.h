@@ -2,7 +2,7 @@
 #include "PluginProcessor.h"
 #include "WaveformDisplay.h"
 #include "FilterResponseDisplay.h"
-#include "DelayEditorComponent.h"
+#include "EffectsPage.h"
 
 class MiSinteEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -83,8 +83,11 @@ private:
     // --- Pagina LFOs ---
     LfoUI lfoUI[kNumLfos];
 
-    // --- Pagina EFFECTS (por ahora el Delay; aqui se anadiran los demas efectos) ---
-    DelayEditorComponent delayEditor;
+    // --- Pagina EFFECTS: cadena reordenable de efectos (por ahora solo el Delay esta implementado) ---
+    EffectsPage effectsPage;
+
+    // Medidor de CPU (sintetizador / efectos / total), visible en todas las pestanas
+    juce::Label cpuLabel;
 
     // Estado para atenuar los knobs que no aplican
     std::atomic<float>* waveRaw = nullptr;

@@ -455,6 +455,9 @@ public:
 private:
     void timerCallback() override
     {
+        if (! isShowing())
+            return;
+
         const int  mode = juce::jlimit (0, kNumDelayModes - 1, (int) rawMode->load());
         const bool link = rawLink->load()  > 0.5f;
         const bool syL  = rawSyncL->load() > 0.5f;

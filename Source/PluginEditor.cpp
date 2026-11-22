@@ -39,7 +39,7 @@ namespace
 MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     : AudioProcessorEditor (&p), proc (p),
       waveDisplay (p.apvts), filterDisplay (p.apvts, p.getFilterDisplay()),
-      delayEditor (p.apvts)
+      effectsPage (p.apvts, p.getEffectChain())
 {
     waveRaw = proc.apvts.getRawParameterValue ("wave");
     syncRaw = proc.apvts.getRawParameterValue ("oscsync");
@@ -148,7 +148,11 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
         setupLfo (lfoUI[i], i);
 
     // --- Pagina EFFECTS ---
-    addToPage (2, delayEditor);
+    addToPage (2, effectsPage);
+
+    cpuLabel.setJustificationType (juce::Justification::centredRight);
+    cpuLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.55f));
+    addAndMakeVisible (cpuLabel);
 
     showPage (0);
 
@@ -194,6 +198,14 @@ void MiSinteEditor::timerCallback()
     const bool armed = proc.isChordCaptureArmed();
     if (armed != captureBtn.getToggleState())
         captureBtn.setToggleState (armed, juce::dontSendNotification);
+
+    // Medidor de CPU real del plugin (porcentaje del tiempo del bloque de audio)
+    const auto& chainMeter = proc.getEffectChain().getTotalMeter();
+    cpuLabel.setText ("CPU  synth " + juce::String (proc.getSynthCpuMeter().getAverage(), 1)
+                      + "%   fx " + juce::String (chainMeter.getAverage(), 1)
+                      + "%   total " + juce::String (proc.getTotalCpuMeter().getAverage(), 1)
+                      + "% (pk " + juce::String (proc.getTotalCpuMeter().getPeak(), 0) + ")",
+                      juce::dontSendNotification);
 }
 
 void MiSinteEditor::setKnobEnabled (Knob& k, bool enabled)
@@ -593,5 +605,8 @@ void MiSinteEditor::resized()
         layoutLfo (lfoUI[i], i, s);
 
     // ---------- Pestana EFFECTS: el Delay ocupa la parte superior; debajo quedara sitio para la Reverb ----------
-    delayEditor.setBounds (0, S (kTop), S (kDesignW), S (DelayEditorComponent::kDesignH));
+    effectsPage.setBounds (0, S (kTop), S (kDesignW), S (EffectsPage::kDesignH));
+
+    cpuLabel.setFont (juce::Font (juce::FontOptions (11.5f * s)));
+    cpuLabel.setBounds (S (590), S (14), S (390), S (24));
 }

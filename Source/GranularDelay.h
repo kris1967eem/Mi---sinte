@@ -119,12 +119,31 @@ public:
                 if (! g.active)
                     continue;
 
-                const float w = windowAt (g.age / g.length, g.gaussian);
-                accL += buffers[0].readAbsolute (g.positionL) * w * g.gainL;
-                accR += buffers[1].readAbsolute (g.positionR) * w * g.gainR;
+                const float w = windowAt (g.age * g.invLength, g.gaussian);
 
-                g.positionL += g.step;
-                g.positionR += g.step;
+                if (g.fixedStep)
+                {
+                    const float l = g.coefL[0] * buffers[0].getSampleAbsolute (g.baseL - 1)
+                                  + g.coefL[1] * buffers[0].getSampleAbsolute (g.baseL)
+                                  + g.coefL[2] * buffers[0].getSampleAbsolute (g.baseL + 1)
+                                  + g.coefL[3] * buffers[0].getSampleAbsolute (g.baseL + 2);
+                    const float r = g.coefR[0] * buffers[1].getSampleAbsolute (g.baseR - 1)
+                                  + g.coefR[1] * buffers[1].getSampleAbsolute (g.baseR)
+                                  + g.coefR[2] * buffers[1].getSampleAbsolute (g.baseR + 1)
+                                  + g.coefR[3] * buffers[1].getSampleAbsolute (g.baseR + 2);
+                    accL += l * w * g.gainL;
+                    accR += r * w * g.gainR;
+                    ++g.baseL;
+                    ++g.baseR;
+                }
+                else
+                {
+                    accL += buffers[0].readAbsolute (g.positionL) * w * g.gainL;
+                    accR += buffers[1].readAbsolute (g.positionR) * w * g.gainR;
+                    g.positionL += g.step;
+                    g.positionR += g.step;
+                }
+
                 g.age += 1.0;
                 if (g.age >= g.length)
                     g.active = false;
@@ -150,7 +169,14 @@ private:
         double positionL = 0.0, positionR = 0.0;   // indices absolutos de lectura
         double step = 1.0;                         // velocidad de lectura (1 = tono original)
         double age = 0.0, length = 1.0;            // en muestras
+        double invLength = 1.0;
         float gainL = 1.0f, gainR = 1.0f;
+
+        // Sin cambio de tono (step = 1) la parte fraccionaria de la posicion no varia: los coeficientes de
+        // la interpolacion de Lagrange se calculan una sola vez al nacer el grano (lectura mucho mas barata).
+        bool fixedStep = false;
+        std::int64_t baseL = 0, baseR = 0;         // indice entero de la muestra de referencia
+        float coefL[4] {}, coefR[4] {};
     };
 
     void buildTables() noexcept
@@ -175,6 +201,19 @@ private:
         const float f = (float) (pos - (double) i);
         const auto& table = gaussian ? gaussTable : tukeyTable;
         return table[(size_t) i] + (table[(size_t) i + 1] - table[(size_t) i]) * f;
+    }
+
+    // Coeficientes de Lagrange cubico para una posicion fraccionaria: puntos base-1, base, base+1, base+2
+    static void setLagrangeCoefficients (double position, std::int64_t& base, float* coef) noexcept
+    {
+        const double floorPos = std::floor (position);
+        base = (std::int64_t) floorPos;
+        const float f = (float) (position - floorPos);
+
+        coef[0] = -f * (f - 1.0f) * (f - 2.0f) * (1.0f / 6.0f);
+        coef[1] = (f + 1.0f) * (f - 1.0f) * (f - 2.0f) * 0.5f;
+        coef[2] = -(f + 1.0f) * f * (f - 2.0f) * 0.5f;
+        coef[3] = (f + 1.0f) * f * (f - 1.0f) * (1.0f / 6.0f);
     }
 
     void spawnGrain (float sizeMs, float density, float spray) noexcept
@@ -229,6 +268,14 @@ private:
         slot->step = step;
         slot->age = 0.0;
         slot->length = length;
+        slot->invLength = 1.0 / length;
+
+        slot->fixedStep = std::abs (step - 1.0) < 1.0e-9;
+        if (slot->fixedStep)
+        {
+            setLagrangeCoefficients (slot->positionL, slot->baseL, slot->coefL);
+            setLagrangeCoefficients (slot->positionR, slot->baseR, slot->coefR);
+        }
         slot->gainL = gain * (1.0f - std::max (0.0f, pan));
         slot->gainR = gain * (1.0f + std::min (0.0f, pan));
     }

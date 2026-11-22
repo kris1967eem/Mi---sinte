@@ -4,6 +4,7 @@
 
 #include <array>
 
+#include "DelayDspExtras.h"
 #include "IDelayAlgorithm.h"
 
 // ============================================================================
@@ -141,8 +142,6 @@ public:
 private:
     using Smoothed = juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>;
 
-    static constexpr float kTwoPi = 6.28318530717959f;
-
     void processChunk (const float* inL, const float* inR, float* wetL, float* wetR, int n) noexcept
     {
         const float* in[2] = { inL, inR };
@@ -156,24 +155,25 @@ private:
             const float wowAmt = wowSm.getNextValue();
             const float age   = ageSm.getNextValue();
 
-            // Tape Age: paso bajo de 18 kHz (nuevo) a 2.5 kHz (viejo), interpolado en escala logaritmica
-            if (age != lastAge)
+            // Una vez por chunk (16 muestras): filtro de edad y parametros de la saturacion
+            if (j == 0)
             {
-                const float cutoff = 18000.0f * std::pow (2500.0f / 18000.0f, age);
-                for (auto& f : ageFilter)
-                    f.setCutoff (cutoff, sampleRate);
-                lastAge = age;
+                // Tape Age: paso bajo de 18 kHz (nuevo) a 2.5 kHz (viejo), interpolado en escala logaritmica
+                if (age != lastAge)
+                {
+                    const float cutoff = 18000.0f * std::exp2 (-2.848f * age);   // log2 (2500 / 18000) = -2.848
+                    for (auto& f : ageFilter)
+                        f.setCutoff (cutoff, sampleRate);
+                    lastAge = age;
+                }
+
+                // Saturacion: ganancia, sesgo (asimetria) y normalizacion segun el drive
+                satGain = 0.3f + 7.7f * drive * drive;
+                satBias = 0.2f * drive;
+                satBiasTanh = DelayDsp::fastTanh (satBias);
+                satNorm = kSatRef / DelayDsp::fastTanh (satGain * kSatRef);
+                hissAmp = 0.0012f * age * age;
             }
-
-            // Saturacion: ganancia, sesgo (asimetria) y normalizacion segun el drive
-            const float g = 0.3f + 7.7f * drive * drive;
-            const float bias = 0.2f * drive;
-            gains[j] = g;
-            biases[j] = bias;
-            biasTanh[j] = std::tanh (bias);
-            norms[j] = kSatRef / std::tanh (g * kSatRef);
-
-            const float hissAmp = 0.0012f * age * age;
 
             // Los 3 osciladores de modulacion avanzan una vez por muestra (compartidos por L y R con desfase)
             for (int c = 0; c < 2; ++c)
@@ -186,9 +186,9 @@ private:
                 slowNoise[c] += noiseLpCoef * (noise.next() - slowNoise[c]);
                 const float walk = std::clamp (slowNoise[c] * noiseScale, -1.0f, 1.0f);
 
-                const float wow = 0.7f * std::sin (kTwoPi * (float) wowPhase1[c])
-                                + 0.3f * std::sin (kTwoPi * (float) wowPhase2[c]);
-                const float flutter = std::sin (kTwoPi * (float) flutterPhase[c]);
+                const float wow = 0.7f * DelayDsp::fastSinTurns ((float) wowPhase1[c])
+                                + 0.3f * DelayDsp::fastSinTurns ((float) wowPhase2[c]);
+                const float flutter = DelayDsp::fastSinTurns ((float) flutterPhase[c]);
 
                 // Profundidad de la modulacion en ms (a 1.0: wow 2 ms, flutter 0.07 ms, deriva 0.12 ms)
                 const float modMs = wowAmt * (2.0f * wow + 0.07f * flutter + 0.12f * walk);
@@ -229,10 +229,7 @@ private:
         {
             float* d = upBlock.getChannelPointer ((size_t) c);
             for (int k = 0; k < upN; ++k)
-            {
-                const int j = std::min (k / 4, n - 1);
-                d[k] = (std::tanh (gains[j] * d[k] + biases[j]) - biasTanh[j]) * norms[j];
-            }
+                d[k] = (DelayDsp::fastTanh (satGain * d[k] + satBias) - satBiasTanh) * satNorm;
         }
 
         oversampler.processSamplesDown (block);
@@ -279,7 +276,7 @@ private:
 
     // Memoria de trabajo del chunk (reservada en el propio objeto: nada se asigna en process)
     std::array<float, kChunk> rec[2];
-    std::array<float, kChunk> gains {}, biases {}, biasTanh {}, norms {};
+    float satGain = 1.0f, satBias = 0.0f, satBiasTanh = 0.0f, satNorm = 1.0f, hissAmp = 0.0f;
 
     bool snapPending = true;
 };
