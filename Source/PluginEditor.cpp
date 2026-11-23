@@ -150,10 +150,6 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     // --- Pagina EFFECTS ---
     addToPage (2, effectsPage);
 
-    cpuLabel.setJustificationType (juce::Justification::centredRight);
-    cpuLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.55f));
-    addAndMakeVisible (cpuLabel);
-
     showPage (0);
 
     // Ventana redimensionable (arrastrando la esquina inferior derecha),
@@ -198,14 +194,6 @@ void MiSinteEditor::timerCallback()
     const bool armed = proc.isChordCaptureArmed();
     if (armed != captureBtn.getToggleState())
         captureBtn.setToggleState (armed, juce::dontSendNotification);
-
-    // Medidor de CPU real del plugin (porcentaje del tiempo del bloque de audio)
-    const auto& chainMeter = proc.getEffectChain().getTotalMeter();
-    cpuLabel.setText ("CPU  synth " + juce::String (proc.getSynthCpuMeter().getAverage(), 1)
-                      + "%   fx " + juce::String (chainMeter.getAverage(), 1)
-                      + "%   total " + juce::String (proc.getTotalCpuMeter().getAverage(), 1)
-                      + "% (pk " + juce::String (proc.getTotalCpuMeter().getPeak(), 0) + ")",
-                      juce::dontSendNotification);
 }
 
 void MiSinteEditor::setKnobEnabled (Knob& k, bool enabled)
@@ -606,7 +594,4 @@ void MiSinteEditor::resized()
 
     // ---------- Pestana EFFECTS: el Delay ocupa la parte superior; debajo quedara sitio para la Reverb ----------
     effectsPage.setBounds (0, S (kTop), S (kDesignW), S (EffectsPage::kDesignH));
-
-    cpuLabel.setFont (juce::Font (juce::FontOptions (11.5f * s)));
-    cpuLabel.setBounds (S (590), S (14), S (390), S (24));
 }

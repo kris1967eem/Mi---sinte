@@ -50,10 +50,8 @@ public:
     bool isChordCaptureArmed() const { return chordCapture.isArmed(); }
     bool loadChordFromMidi (const juce::File& file);
 
-    // Cadena de efectos (pestana EFFECTS) y medidores de CPU para la interfaz
+    // Cadena de efectos (pestana EFFECTS)
     EffectChain& getEffectChain() noexcept { return effectChain; }
-    const CpuMeter& getSynthCpuMeter() const noexcept { return cpuSynth; }
-    const CpuMeter& getTotalCpuMeter() const noexcept { return cpuTotal; }
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -67,7 +65,6 @@ private:
     FilterDisplayState filterDisplay;
     GlobalLfoBank globalLfo;      // LFOs con POLY apagado (uno solo para todas las voces)
     EffectChain effectChain { apvts };   // cadena de efectos reordenable (hoy: Delay; el resto, reservado)
-    CpuMeter cpuSynth, cpuTotal;         // CPU del sintetizador y de todo processBlock
     UserChord userChord;
     ChordCapture chordCapture;
 

@@ -4,7 +4,6 @@
 #include <atomic>
 #include <memory>
 
-#include "CpuMeter.h"
 #include "DelayModule.h"
 #include "EffectModule.h"
 
@@ -20,7 +19,6 @@
 //      orden y sube en otros 5 ms con el nuevo. Los modulos conservan su estado interno.
 //    - Los modulos aun no implementados (nullptr) se saltan: la senal pasa sin tocarse.
 //    - Un modulo apagado se limita a volver enseguida (cada uno gestiona su propio ON/OFF).
-//    - Mide el CPU de cada modulo (CpuMeter) para mostrarlo en la interfaz.
 //    - process() no reserva memoria ni usa bloqueos.
 // ============================================================================
 class EffectChain
@@ -57,9 +55,6 @@ public:
         phase = Phase::Stable;
         counter = 0;
 
-        for (auto& meter : moduleMeters)
-            meter.reset();
-        totalMeter.reset();
     }
 
     void reset()
@@ -88,10 +83,6 @@ public:
         const auto o = EffectOrderUtil::unpack (orderPacked.load (std::memory_order_acquire));
         return EffectOrderUtil::isValid (o) ? o : EffectOrderUtil::getDefault();
     }
-
-    // --- Medidores de CPU (solo lectura, para la interfaz) ---------------------------------
-    const CpuMeter& getModuleMeter (EffectId id) const noexcept { return moduleMeters[(size_t) id]; }
-    const CpuMeter& getTotalMeter() const noexcept { return totalMeter; }
 
     // --- Hilo de audio ----------------------------------------------------------------------
     void process (juce::AudioBuffer<float>& buffer, double bpm) noexcept
@@ -171,10 +162,6 @@ public:
             }
         }
 
-        // Publica el CPU de este bloque
-        for (auto& meter : moduleMeters)
-            meter.publish (total, sampleRate);
-        totalMeter.publish (total, sampleRate);
     }
 
 private:
@@ -194,19 +181,11 @@ private:
             if (module == nullptr)
                 continue;
 
-            const auto t0 = juce::Time::getHighResolutionTicks();
             module->process (view, bpm);
-            const auto ticks = juce::Time::getHighResolutionTicks() - t0;
-
-            moduleMeters[id].addTicks (ticks);
-            totalMeter.addTicks (ticks);
         }
     }
 
     std::array<std::unique_ptr<IEffect>, (size_t) kNumEffects> modules;
-    std::array<CpuMeter, (size_t) kNumEffects> moduleMeters;
-    CpuMeter totalMeter;
-
     std::atomic<std::uint64_t> orderPacked { 0 };
 
     double sampleRate = 44100.0;

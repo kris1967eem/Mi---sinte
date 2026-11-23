@@ -86,9 +86,6 @@ private:
     // --- Pagina EFFECTS: cadena reordenable de efectos (por ahora solo el Delay esta implementado) ---
     EffectsPage effectsPage;
 
-    // Medidor de CPU (sintetizador / efectos / total), visible en todas las pestanas
-    juce::Label cpuLabel;
-
     // Estado para atenuar los knobs que no aplican
     std::atomic<float>* waveRaw = nullptr;
     std::atomic<float>* syncRaw = nullptr;
