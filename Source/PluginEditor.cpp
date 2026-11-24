@@ -76,15 +76,15 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     syncA  = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "oscsync", syncBtn);
     resetA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "oscreset", resetBtn);
 
-    setupKnob (pulseWidth, "PW",    "pw",       "", 2, kOrange);
-    setupKnob (syncFreq,   "FREQ",  "syncfreq", " st", 1, kOrange);
+    setupKnob (pulseWidth, "PW",    "pw",       "", 0, kOrange, 0, true);
+    setupKnob (syncFreq,   "FREQ",  "syncfreq", "", 0, kOrange, 0, true);
 
-    setupKnob (octave, "OCT",    "octave", "", 0, kAmber);
-    setupKnob (semi,   "SEMI",   "semi",   "", 0, kAmber);
-    setupKnob (fine,   "FINE",   "fine",   " ct", 0, kAmber);
-    setupKnob (glide,  "GLIDE",  "glide",  " s", 2, kAmber);
-    setupKnob (drift,  "DRIFT",  "drift",  "", 2, kAmber);
-    setupKnob (volume, "VOLUME", "volume", "", 2, kGreen);
+    setupKnob (octave, "OCT",    "octave", "", 0, kAmber, 0, false);
+    setupKnob (semi,   "SEMI",   "semi",   "", 0, kAmber, 0, false);
+    setupKnob (fine,   "FINE",   "fine",   "", 0, kAmber, 0, true);
+    setupKnob (glide,  "GLIDE",  "glide",  "", 0, kAmber, 0, true);
+    setupKnob (drift,  "DRIFT",  "drift",  "", 0, kAmber, 0, true);
+    setupKnob (volume, "VOLUME", "volume", "", 0, kGreen, 0, true);
 
     // --- Unison ---
     fillCombo (proc.apvts, unisonModeBox, "umode");
@@ -92,10 +92,10 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);
 
-    setupKnob (unisonVoices, "VOICES", "unison",  "", 0, kCyan);
-    setupKnob (unisonDetune, "DETUNE", "udetune", " ct", 0, kCyan);
-    setupKnob (unisonSpread, "SPREAD", "ustereo", "", 2, kCyan);
-    setupKnob (harmTilt,     "TILT",   "uharm",   "", 2, kCyan);
+    setupKnob (unisonVoices, "VOICES", "unison",  "", 0, kCyan, 0, false);
+    setupKnob (unisonDetune, "DETUNE", "udetune", "", 0, kCyan, 0, true);
+    setupKnob (unisonSpread, "SPREAD", "ustereo", "", 0, kCyan, 0, true);
+    setupKnob (harmTilt,     "TILT",   "uharm",   "", 0, kCyan, 0, true);
 
     // --- CHORD (USER): CAPTURE, LOAD y el acorde actual (solo visibles en ese modo) ---
     captureBtn.setButtonText ("CAPTURE");
@@ -127,21 +127,21 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
 
     addToPage (0, filterDisplay);
 
-    setupKnob (cutoff,   "CUTOFF",  "cutoff",    " Hz", 0, kOrange);
-    setupKnob (reso,     "RESO",    "resonance", "", 2, kOrange);
-    setupKnob (envAmt,   "ENV AMT", "envamt",    "", 2, kOrange);
+    setupKnob (cutoff,   "CUTOFF",  "cutoff",    "", 0, kOrange, 0, true);
+    setupKnob (reso,     "RESO",    "resonance", "", 0, kOrange, 0, true);
+    setupKnob (envAmt,   "ENV AMT", "envamt",    "", 0, kOrange, 0, true);
 
     // --- Envolvente del filtro ---
-    setupKnob (fAttack,  "ATTACK",  "fattack",   " s", 2, kPink);
-    setupKnob (fDecay,   "DECAY",   "fdecay",    " s", 2, kPink);
-    setupKnob (fSustain, "SUSTAIN", "fsustain",  "", 2, kPink);
-    setupKnob (fRelease, "RELEASE", "frelease",  " s", 2, kPink);
+    setupKnob (fAttack,  "ATTACK",  "fattack",   "", 0, kPink, 0, true);
+    setupKnob (fDecay,   "DECAY",   "fdecay",    "", 0, kPink, 0, true);
+    setupKnob (fSustain, "SUSTAIN", "fsustain",  "", 0, kPink, 0, true);
+    setupKnob (fRelease, "RELEASE", "frelease",  "", 0, kPink, 0, true);
 
     // --- Envolvente de amplitud ---
-    setupKnob (attack,  "ATTACK",  "attack",  " s", 2, kGreen);
-    setupKnob (decay,   "DECAY",   "decay",   " s", 2, kGreen);
-    setupKnob (sustain, "SUSTAIN", "sustain", "", 2, kGreen);
-    setupKnob (release, "RELEASE", "release", " s", 2, kGreen);
+    setupKnob (attack,  "ATTACK",  "attack",  "", 0, kGreen, 0, true);
+    setupKnob (decay,   "DECAY",   "decay",   "", 0, kGreen, 0, true);
+    setupKnob (sustain, "SUSTAIN", "sustain", "", 0, kGreen, 0, true);
+    setupKnob (release, "RELEASE", "release", "", 0, kGreen, 0, true);
 
     // --- LFOs ---
     for (int i = 0; i < kNumLfos; ++i)
@@ -268,7 +268,7 @@ void MiSinteEditor::showPage (int page)
 
 void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
                                const juce::String& suffix, int decimals,
-                               juce::Colour accent, int page)
+                               juce::Colour accent, int page, bool asPercentage)
 {
     k.slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 18);
@@ -276,10 +276,7 @@ void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::St
     k.slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff3a3a46));
     k.slider.setColour (juce::Slider::thumbColourId, accent.brighter (0.4f));
     k.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    if (suffix.isNotEmpty())
-        k.slider.setTextValueSuffix (suffix);
-    if (decimals >= 0)
-        k.slider.setNumDecimalPlacesToDisplay (decimals);
+
     addToPage (page, k.slider);
 
     k.label.setText (text, juce::dontSendNotification);
@@ -289,6 +286,30 @@ void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::St
 
     k.attach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         proc.apvts, paramID, k.slider);
+
+    if (asPercentage)
+    {
+        auto* sliderPtr = &k.slider;
+        k.slider.textFromValueFunction = [sliderPtr] (double val)
+        {
+            const double norm = sliderPtr->valueToProportionOfLength (val);
+            return juce::String (juce::roundToInt (norm * 100.0)) + "%";
+        };
+        k.slider.valueFromTextFunction = [sliderPtr] (const juce::String& txt)
+        {
+            const double pct = juce::jlimit (0.0, 100.0, txt.trimCharactersAtEnd ("% ").getDoubleValue());
+            return sliderPtr->proportionOfLengthToValue (pct / 100.0);
+        };
+        k.slider.updateText();
+    }
+    else
+    {
+        if (suffix.isNotEmpty())
+            k.slider.setTextValueSuffix (suffix);
+        if (decimals >= 0)
+            k.slider.setNumDecimalPlacesToDisplay (decimals);
+        k.slider.updateText();
+    }
 }
 
 void MiSinteEditor::setupLfo (LfoUI& u, int index)
@@ -343,10 +364,10 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     u.polyA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         proc.apvts, "lfo" + n + "poly", u.poly);
 
-    setupKnob (u.rate,  "RATE",    "lfo" + n + "rate",  " Hz", 2, kCyan, 1);
-    setupKnob (u.amt,   "AMOUNT",  "lfo" + n + "amt",   "", 2, kCyan, 1);
-    setupKnob (u.fade,  "FADE IN", "lfo" + n + "fade",  " s", 2, kCyan, 1);
-    setupKnob (u.phase, "PHASE",   "lfo" + n + "phase", "", 0, kCyan, 1);
+    setupKnob (u.rate,  "RATE",    "lfo" + n + "rate",  "", 0, kCyan, 1, true);
+    setupKnob (u.amt,   "AMOUNT",  "lfo" + n + "amt",   "", 0, kCyan, 1, true);
+    setupKnob (u.fade,  "FADE IN", "lfo" + n + "fade",  "", 0, kCyan, 1, true);
+    setupKnob (u.phase, "PHASE",   "lfo" + n + "phase", "", 0, kCyan, 1, true);
 }
 
 void MiSinteEditor::chooseLfoWave (int index)

@@ -37,7 +37,8 @@ private:
     void addToPage (int page, juce::Component& c);
     void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
                     const juce::String& suffix = {}, int decimals = -1,
-                    juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0);
+                    juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0,
+                    bool asPercentage = true);
     void setupLfo (LfoUI& u, int index);
     void chooseLfoWave (int index);
     void placeKnob (Knob& k, int x, int y, int w, int sliderH, float s);
