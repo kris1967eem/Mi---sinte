@@ -57,6 +57,22 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     // --- Oscilador ---
     addToPage (0, waveDisplay);
 
+    // Control horizontal VOL situado justo debajo del visor WAVEFORM.
+    oscVolLabel.setText ("VOL", juce::dontSendNotification);
+    oscVolLabel.setJustificationType (juce::Justification::centredLeft);
+    oscVolLabel.setColour (juce::Label::textColourId, kOrange);
+    oscVolLabel.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    addToPage (0, oscVolLabel);
+
+    oscVolSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    oscVolSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    oscVolSlider.setColour (juce::Slider::trackColourId, kOrange);
+    oscVolSlider.setColour (juce::Slider::thumbColourId, kOrange.brighter (0.35f));
+    oscVolSlider.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff3a3a46));
+    addToPage (0, oscVolSlider);
+    oscVolAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        proc.apvts, "oscvol", oscVolSlider);
+
     syncBtn.setButtonText ("SYNC");
     resetBtn.setButtonText ("RESET");
     for (auto* b : { &syncBtn, &resetBtn })
@@ -560,6 +576,9 @@ void MiSinteEditor::resized()
     pageFxBtn.setBounds (S (467), S (13), S (90), S (26));
 
     waveDisplay.setBounds (S (44), S (127), S (228), S (83));
+    oscVolLabel.setBounds (S (44), S (232), S (30), S (17));
+    oscVolLabel.setFont (juce::Font (juce::FontOptions (11.0f * s, juce::Font::bold)));
+    oscVolSlider.setBounds (S (77), S (232), S (195), S (17));
 
     placeKnob (pulseWidth, 45,  kMidY, kKnobW, kDialH, s);
     placeKnob (syncFreq,   129, kMidY, kKnobW, kDialH, s);

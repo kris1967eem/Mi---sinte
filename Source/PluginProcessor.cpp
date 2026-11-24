@@ -26,6 +26,7 @@ MiSinteProcessor::MiSinteProcessor()
     vp.sync       = apvts.getRawParameterValue ("oscsync");
     vp.syncFreq   = apvts.getRawParameterValue ("syncfreq");
     vp.reset      = apvts.getRawParameterValue ("oscreset");
+    vp.oscVol     = apvts.getRawParameterValue ("oscvol");
     vp.attack     = apvts.getRawParameterValue ("attack");
     vp.decay      = apvts.getRawParameterValue ("decay");
     vp.sustain    = apvts.getRawParameterValue ("sustain");
@@ -119,6 +120,10 @@ MiSinteProcessor::createLayout()
 
     layout.add (std::make_unique<AudioParameterBool> (
         ParameterID { "oscreset", 1 }, "Osc Reset", false));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "oscvol", 1 }, "Oscillator Volume",
+        NormalisableRange<float> (0.0f, 1.0f), 1.0f));
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "glide", 1 }, "Glide",

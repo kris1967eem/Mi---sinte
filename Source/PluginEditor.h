@@ -65,6 +65,9 @@ private:
     // --- Pagina OSC: oscilador ---
     WaveformDisplay waveDisplay;
     FilterResponseDisplay filterDisplay;
+    juce::Slider oscVolSlider;
+    juce::Label oscVolLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> oscVolAttach;
     juce::TextButton syncBtn, resetBtn;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncA, resetA;
     Knob pulseWidth, syncFreq, octave, semi, fine, glide, drift, volume;

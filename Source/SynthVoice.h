@@ -43,6 +43,7 @@ struct VoiceParams
     std::atomic<float>* sync     = nullptr;   // hard sync on/off
     std::atomic<float>* syncFreq = nullptr;   // semitonos sobre la frecuencia base
     std::atomic<float>* reset    = nullptr;   // reinicio de fase en cada nota
+    std::atomic<float>* oscVol   = nullptr;   // volumen del oscilador VA antes del filtro
 
     // Envolvente de amplitud
     std::atomic<float>* attack  = nullptr;
@@ -491,6 +492,9 @@ public:
         const bool syncOn = params.sync->load() > 0.5f;
         const double syncBase = (double) params.syncFreq->load();
         const double tilt = (double) params.tilt->load();
+        const double oscVol = params.oscVol != nullptr
+                                ? (double) params.oscVol->load (std::memory_order_relaxed)
+                                : 1.0;
 
         const int n = juce::jlimit (1, kMaxUnison, (int) params.unison->load());
         const int mode = juce::jlimit (0, kNumModes - 1, (int) params.unisonMode->load());
@@ -616,8 +620,9 @@ public:
             }
 
             const float amp = env * level * lfoVol;
-            const float outL = (float) processFilter (sumL, filterType, sL1, sL2) * amp;
-            const float outR = (float) processFilter (sumR, filterType, sR1, sR2) * amp;
+            // VOL actua sobre la senal del oscilador antes de entrar en el filtro.
+            const float outL = (float) processFilter (sumL * oscVol, filterType, sL1, sL2) * amp;
+            const float outR = (float) processFilter (sumR * oscVol, filterType, sR1, sR2) * amp;
 
             for (int c = 0; c < out.getNumChannels(); ++c)
                 out.addSample (c, startSample + i, c == 0 ? outL : outR);
