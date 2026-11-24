@@ -15,13 +15,6 @@ public:
     void resized() override;
 
 private:
-    enum class KnobDisplayMode
-    {
-        Percent,      // 0 a 100 (sin simbolo %)
-        Integer,      // Valor entero discreto (OCT, SEMI, VOICES)
-        BipolarCents  // -100 a 0 a 100 (FINE)
-    };
-
     struct Knob
     {
         juce::Slider slider;
@@ -43,8 +36,12 @@ private:
     void timerCallback() override;
     void addToPage (int page, juce::Component& c);
     void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
-                    KnobDisplayMode displayMode = KnobDisplayMode::Percent,
+                    const juce::String& suffix = {}, int decimals = -1,
                     juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0);
+    void setupKnobPercent (Knob& k, const juce::String& text, const juce::String& paramID,
+                           juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0);
+    void setupKnobBipolar (Knob& k, const juce::String& text, const juce::String& paramID,
+                           juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0);
     void setupLfo (LfoUI& u, int index);
     void chooseLfoWave (int index);
     void placeKnob (Knob& k, int x, int y, int w, int sliderH, float s);
