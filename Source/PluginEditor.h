@@ -15,6 +15,13 @@ public:
     void resized() override;
 
 private:
+    enum class KnobFormat
+    {
+        Discrete,    // Enteros exactos (OCT, SEMI, VOICES)
+        Percent,     // 0 a 100 sin simbolo %
+        Bipolar      // -100 a 100 con 0 en el centro (FINE, ENV AMT, LFO AMT)
+    };
+
     struct Knob
     {
         juce::Slider slider;
@@ -36,9 +43,7 @@ private:
     void timerCallback() override;
     void addToPage (int page, juce::Component& c);
     void setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
-                    const juce::String& suffix = {}, int decimals = -1,
-                    juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0,
-                    bool asPercentage = true);
+                    KnobFormat format, juce::Colour accent = juce::Colour (0xffe9b44c), int page = 0);
     void setupLfo (LfoUI& u, int index);
     void chooseLfoWave (int index);
     void placeKnob (Knob& k, int x, int y, int w, int sliderH, float s);
@@ -84,7 +89,7 @@ private:
     // --- Pagina LFOs ---
     LfoUI lfoUI[kNumLfos];
 
-    // --- Pagina EFFECTS: cadena reordenable de efectos (por ahora solo el Delay esta implementado) ---
+    // --- Pagina EFFECTS ---
     EffectsPage effectsPage;
 
     // Estado para atenuar los knobs que no aplican
