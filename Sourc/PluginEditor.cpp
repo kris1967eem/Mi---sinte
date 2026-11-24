@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <cmath>
 
 namespace
 {
@@ -76,15 +77,15 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     syncA  = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "oscsync", syncBtn);
     resetA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "oscreset", resetBtn);
 
-    setupKnobPercent (pulseWidth, "PW",    "pw",       kOrange);
-    setupKnobPercent (syncFreq,   "FREQ",  "syncfreq", kOrange);
+    setupKnob (pulseWidth, "PW",    "pw",       KnobDisplayMode::Percent, kOrange);
+    setupKnob (syncFreq,   "FREQ",  "syncfreq", KnobDisplayMode::Percent, kOrange);
 
-    setupKnob        (octave, "OCT",    "octave", "", 0, kAmber);
-    setupKnob        (semi,   "SEMI",   "semi",   "", 0, kAmber);
-    setupKnobBipolar (fine,   "FINE",   "fine",   kAmber);
-    setupKnobPercent (glide,  "GLIDE",  "glide",  kAmber);
-    setupKnobPercent (drift,  "DRIFT",  "drift",  kAmber);
-    setupKnobPercent (volume, "VOLUME", "volume", kGreen);
+    setupKnob (octave, "OCT",    "octave", KnobDisplayMode::Integer, kAmber);
+    setupKnob (semi,   "SEMI",   "semi",   KnobDisplayMode::Integer, kAmber);
+    setupKnob (fine,   "FINE",   "fine",   KnobDisplayMode::Bipolar, kAmber);
+    setupKnob (glide,  "GLIDE",  "glide",  KnobDisplayMode::Percent, kAmber);
+    setupKnob (drift,  "DRIFT",  "drift",  KnobDisplayMode::Percent, kAmber);
+    setupKnob (volume, "VOLUME", "volume", KnobDisplayMode::Percent, kGreen);
 
     // --- Unison ---
     fillCombo (proc.apvts, unisonModeBox, "umode");
@@ -92,10 +93,10 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     unisonModeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.apvts, "umode", unisonModeBox);
 
-    setupKnob        (unisonVoices, "VOICES", "unison",  "", 0, kCyan);
-    setupKnobPercent (unisonDetune, "DETUNE", "udetune", kCyan);
-    setupKnobPercent (unisonSpread, "SPREAD", "ustereo", kCyan);
-    setupKnobPercent (harmTilt,     "TILT",   "uharm",   kCyan);
+    setupKnob (unisonVoices, "VOICES", "unison",  KnobDisplayMode::Integer, kCyan);
+    setupKnob (unisonDetune, "DETUNE", "udetune", KnobDisplayMode::Percent, kCyan);
+    setupKnob (unisonSpread, "SPREAD", "ustereo", KnobDisplayMode::Percent, kCyan);
+    setupKnob (harmTilt,     "TILT",   "uharm",   KnobDisplayMode::Percent, kCyan);
 
     // --- CHORD (USER): CAPTURE, LOAD y el acorde actual (solo visibles en ese modo) ---
     captureBtn.setButtonText ("CAPTURE");
@@ -127,21 +128,21 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
 
     addToPage (0, filterDisplay);
 
-    setupKnobPercent (cutoff,   "CUTOFF",  "cutoff",    kOrange);
-    setupKnobPercent (reso,     "RESO",    "resonance", kOrange);
-    setupKnobBipolar (envAmt,   "ENV AMT", "envamt",    kOrange);
+    setupKnob (cutoff,   "CUTOFF",  "cutoff",    KnobDisplayMode::Percent, kOrange);
+    setupKnob (reso,     "RESO",    "resonance", KnobDisplayMode::Percent, kOrange);
+    setupKnob (envAmt,   "ENV AMT", "envamt",    KnobDisplayMode::Bipolar, kOrange);
 
     // --- Envolvente del filtro ---
-    setupKnobPercent (fAttack,  "ATTACK",  "fattack",   kPink);
-    setupKnobPercent (fDecay,   "DECAY",   "fdecay",    kPink);
-    setupKnobPercent (fSustain, "SUSTAIN", "fsustain",  kPink);
-    setupKnobPercent (fRelease, "RELEASE", "frelease",  kPink);
+    setupKnob (fAttack,  "ATTACK",  "fattack",   KnobDisplayMode::Percent, kPink);
+    setupKnob (fDecay,   "DECAY",   "fdecay",    KnobDisplayMode::Percent, kPink);
+    setupKnob (fSustain, "SUSTAIN", "fsustain",  KnobDisplayMode::Percent, kPink);
+    setupKnob (fRelease, "RELEASE", "frelease",  KnobDisplayMode::Percent, kPink);
 
     // --- Envolvente de amplitud ---
-    setupKnobPercent (attack,  "ATTACK",  "attack",  kGreen);
-    setupKnobPercent (decay,   "DECAY",   "decay",   kGreen);
-    setupKnobPercent (sustain, "SUSTAIN", "sustain", kGreen);
-    setupKnobPercent (release, "RELEASE", "release", kGreen);
+    setupKnob (attack,  "ATTACK",  "attack",  KnobDisplayMode::Percent, kGreen);
+    setupKnob (decay,   "DECAY",   "decay",   KnobDisplayMode::Percent, kGreen);
+    setupKnob (sustain, "SUSTAIN", "sustain", KnobDisplayMode::Percent, kGreen);
+    setupKnob (release, "RELEASE", "release", KnobDisplayMode::Percent, kGreen);
 
     // --- LFOs ---
     for (int i = 0; i < kNumLfos; ++i)
@@ -267,7 +268,7 @@ void MiSinteEditor::showPage (int page)
 }
 
 void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::String& paramID,
-                               const juce::String& suffix, int decimals,
+                               KnobDisplayMode displayMode,
                                juce::Colour accent, int page)
 {
     k.slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
@@ -276,10 +277,6 @@ void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::St
     k.slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff3a3a46));
     k.slider.setColour (juce::Slider::thumbColourId, accent.brighter (0.4f));
     k.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    if (suffix.isNotEmpty())
-        k.slider.setTextValueSuffix (suffix);
-    if (decimals >= 0)
-        k.slider.setNumDecimalPlacesToDisplay (decimals);
     addToPage (page, k.slider);
 
     k.label.setText (text, juce::dontSendNotification);
@@ -289,55 +286,56 @@ void MiSinteEditor::setupKnob (Knob& k, const juce::String& text, const juce::St
 
     k.attach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         proc.apvts, paramID, k.slider);
-}
 
-void MiSinteEditor::setupKnobPercent (Knob& k, const juce::String& text, const juce::String& paramID,
-                                      juce::Colour accent, int page)
-{
-    setupKnob (k, text, paramID, "", 0, accent, page);
+    // Configurar textFromValueFunction DESPUES del SliderAttachment para que no sea sobrescrito
+    k.slider.setTextValueSuffix ({});
+    k.slider.setNumDecimalPlacesToDisplay (0);
 
-    if (auto* param = proc.apvts.getParameter (paramID))
+    if (displayMode == KnobDisplayMode::Percent)
     {
-        k.slider.textFromValueFunction = [param] (double value)
+        k.slider.textFromValueFunction = [&slider = k.slider] (double val)
         {
-            const float norm = param->convertTo0to1 ((float) value);
-            return juce::String (juce::roundToInt (norm * 100.0f));
+            const double norm = slider.valueToProportionOfLength (val);
+            const int pct = juce::jlimit (0, 100, juce::roundToInt (norm * 100.0));
+            return juce::String (pct);
         };
-
-        k.slider.valueFromTextFunction = [param] (const juce::String& str)
+        k.slider.valueFromTextFunction = [&slider = k.slider] (const juce::String& str)
         {
-            const float pct = juce::jlimit (0.0f, 100.0f, str.getFloatValue());
-            return (double) param->convertFrom0to1 (pct / 100.0f);
+            const double norm = juce::jlimit (0.0, 1.0, str.getDoubleValue() / 100.0);
+            return slider.proportionOfLengthToValue (norm);
         };
-
-        k.slider.updateText();
     }
-}
-
-void MiSinteEditor::setupKnobBipolar (Knob& k, const juce::String& text, const juce::String& paramID,
-                                      juce::Colour accent, int page)
-{
-    setupKnob (k, text, paramID, "", 0, accent, page);
-
-    if (auto* param = proc.apvts.getParameter (paramID))
+    else if (displayMode == KnobDisplayMode::Bipolar)
     {
-        k.slider.setDoubleClickReturnValue (true, (double) param->convertFrom0to1 (0.5f));
-
-        k.slider.textFromValueFunction = [param] (double value)
+        k.slider.setDoubleClickReturnValue (true, 0.0);
+        k.slider.textFromValueFunction = [&slider = k.slider] (double val)
         {
-            const float norm = param->convertTo0to1 ((float) value);
-            const int bipolar = juce::roundToInt ((norm - 0.5f) * 200.0f);
-            return juce::String (bipolar == 0 ? 0 : bipolar);
+            const double norm = slider.valueToProportionOfLength (val);
+            int bip = juce::jlimit (-100, 100, juce::roundToInt ((norm * 200.0) - 100.0));
+            if (bip == 0)
+                return juce::String ("0");
+            return juce::String (bip);
         };
-
-        k.slider.valueFromTextFunction = [param] (const juce::String& str)
+        k.slider.valueFromTextFunction = [&slider = k.slider] (const juce::String& str)
         {
-            const float bipolar = juce::jlimit (-100.0f, 100.0f, str.getFloatValue());
-            return (double) param->convertFrom0to1 ((bipolar / 200.0f) + 0.5f);
+            const double bip = juce::jlimit (-100.0, 100.0, str.getDoubleValue());
+            const double norm = (bip + 100.0) / 200.0;
+            return slider.proportionOfLengthToValue (norm);
         };
-
-        k.slider.updateText();
     }
+    else
+    {
+        k.slider.textFromValueFunction = [] (double val)
+        {
+            return juce::String (juce::roundToInt (val));
+        };
+        k.slider.valueFromTextFunction = [] (const juce::String& str)
+        {
+            return (double) juce::roundToInt (str.getDoubleValue());
+        };
+    }
+
+    k.slider.updateText();
 }
 
 void MiSinteEditor::setupLfo (LfoUI& u, int index)
@@ -392,10 +390,10 @@ void MiSinteEditor::setupLfo (LfoUI& u, int index)
     u.polyA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         proc.apvts, "lfo" + n + "poly", u.poly);
 
-    setupKnobPercent (u.rate,  "RATE",    "lfo" + n + "rate",  kCyan, 1);
-    setupKnobBipolar (u.amt,   "AMOUNT",  "lfo" + n + "amt",   kCyan, 1);
-    setupKnobPercent (u.fade,  "FADE IN", "lfo" + n + "fade",  kCyan, 1);
-    setupKnobPercent (u.phase, "PHASE",   "lfo" + n + "phase", kCyan, 1);
+    setupKnob (u.rate,  "RATE",    "lfo" + n + "rate",  KnobDisplayMode::Percent, kCyan, 1);
+    setupKnob (u.amt,   "AMOUNT",  "lfo" + n + "amt",   KnobDisplayMode::Bipolar, kCyan, 1);
+    setupKnob (u.fade,  "FADE IN", "lfo" + n + "fade",  KnobDisplayMode::Percent, kCyan, 1);
+    setupKnob (u.phase, "PHASE",   "lfo" + n + "phase", KnobDisplayMode::Percent, kCyan, 1);
 }
 
 void MiSinteEditor::chooseLfoWave (int index)
