@@ -10,17 +10,6 @@
 // ============================================================================
 //  DelayEditorComponent
 //  Interfaz del modulo Delay, pensada para la pestana EFFECTS del plugin.
-//
-//    - Parte superior (fija): interruptor ON, modo (6 algoritmos), LINK, y los controles globales:
-//      TIME L / TIME R (con SYNC, division y modificador por canal), FEEDBACK y MIX.
-//    - Parte inferior (contextual): 6 paneles, uno por algoritmo, creados una sola vez en el
-//      constructor. Solo cambia setVisible() segun el parametro delay_mode: no se crea ni se
-//      destruye nada mientras suena (sin parpadeos).
-//
-//  Todo esta enlazado al APVTS con SliderAttachment, ComboBoxAttachment y ButtonAttachment, asi que
-//  la automatizacion del DAW mueve los controles. Las posiciones estan en un espacio de diseno de
-//  1000 px de ancho (kDesignW x kDesignH) y se escalan segun el ancho real del componente.
-//  Solo cabecera (inline).
 // ============================================================================
 namespace DelayUI
 {
@@ -31,7 +20,7 @@ namespace DelayUI
     inline const juce::Colour kPink   { 0xffe0679f };
 
     // Formato del texto de cada knob
-    enum class Fmt { Ms, SignedMs, Hz, Percent, Semitones, PerSecond };
+    enum class Fmt { Ms, SignedMs, Hz, Percent, BipolarPercent, Semitones, PerSecond };
 
     inline juce::String formatValue (Fmt f, double v)
     {
@@ -44,9 +33,17 @@ namespace DelayUI
             case Fmt::Hz:
                 return v >= 1000.0 ? juce::String (v / 1000.0, 2) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz";
             case Fmt::Percent:
-                return juce::String (juce::roundToInt (v * 100.0)) + " %";
+                return juce::String (juce::roundToInt (v * 100.0));
+            case Fmt::BipolarPercent:
+            {
+                const int pct = juce::roundToInt ((v * 2.0 - 1.0) * 100.0);
+                return juce::String (pct > 0 ? "+" : "") + juce::String (pct == 0 ? 0 : pct);
+            }
             case Fmt::Semitones:
-                return juce::String (v > 0.05 ? "+" : "") + juce::String (v, 1) + " st";
+            {
+                const int st = juce::roundToInt (v);
+                return juce::String (st > 0 ? "+" : "") + juce::String (st == 0 ? 0 : st) + " st";
+            }
             case Fmt::PerSecond:
                 return juce::String (v, 1) + " /s";
         }
@@ -59,11 +56,12 @@ namespace DelayUI
         if (f == Fmt::Hz)
             return text.containsIgnoreCase ("k") ? v * 1000.0 : v;
         if (f == Fmt::Percent)
-            return v / 100.0;
+            return juce::jlimit (0.0, 100.0, v) / 100.0;
+        if (f == Fmt::BipolarPercent)
+            return (juce::jlimit (-100.0, 100.0, v) / 100.0 + 1.0) * 0.5;
         return v;
     }
 
-    // Rellena un menu con las opciones del propio parametro (una sola lista: la del APVTS)
     inline void fillCombo (juce::AudioProcessorValueTreeState& apvts, juce::ComboBox& box, const char* paramID)
     {
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (paramID)))
@@ -85,7 +83,6 @@ namespace DelayUI
         c.setAlpha (enabled ? 1.0f : 0.4f);
     }
 
-    // Knob rotatorio con etiqueta, enlazado a un parametro float del APVTS
     struct DelayKnob
     {
         juce::Slider slider;
@@ -110,13 +107,16 @@ namespace DelayUI
 
             attach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (apvts, paramID, slider);
 
-            // El attachment instala sus propias funciones de texto: se sustituyen despues de crearlo
+            if (fmt == Fmt::BipolarPercent)
+                slider.setDoubleClickReturnValue (true, 0.5);
+            else if (fmt == Fmt::Semitones || fmt == Fmt::SignedMs)
+                slider.setDoubleClickReturnValue (true, 0.0);
+
             slider.textFromValueFunction = [fmt] (double v) { return formatValue (fmt, v); };
             slider.valueFromTextFunction = [fmt] (const juce::String& t) { return parseValue (fmt, t); };
             slider.updateText();
         }
 
-        // Etiqueta en (x, y) y dial justo debajo (coordenadas de diseno)
         void place (int x, int y, int w, int sliderH, float s)
         {
             auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
@@ -136,7 +136,6 @@ namespace DelayUI
         }
     };
 
-    // Base de los 6 paneles contextuales (espacio de diseno de 1000 x 124)
     class DelayPanel : public juce::Component
     {
     public:
@@ -276,7 +275,7 @@ namespace DelayUI
         explicit ReverseDelayPanel (juce::AudioProcessorValueTreeState& apvts)
         {
             smooth.setup (*this, apvts, "SMOOTHNESS",  DelayParams::kReverseSmooth, kGreen, Fmt::Percent);
-            mix   .setup (*this, apvts, "FWD / REV",   DelayParams::kReverseMix,    kGreen, Fmt::Percent);
+            mix   .setup (*this, apvts, "FWD / REV",   DelayParams::kReverseMix,    kGreen, Fmt::BipolarPercent);
 
             setupToggleButton (*this, octaveUp, "OCTAVE UP");
             octaveUpA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
@@ -344,7 +343,6 @@ public:
         rawSyncR = apvts.getRawParameterValue (DelayParams::kSyncR);
         modeNames = DelayParams::getModeNames();
 
-        // ---- Cabecera: ON, modo y LINK ----
         setupToggleButton (*this, onBtn, "ON");
         onA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (apvts, DelayParams::kOn, onBtn);
 
@@ -355,7 +353,6 @@ public:
         setupToggleButton (*this, linkBtn, "LINK");
         linkA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (apvts, DelayParams::kLink, linkBtn);
 
-        // ---- Tiempo L y R ----
         timeL.setup (*this, apvts, "TIME L", DelayParams::kTimeL, kCyan, Fmt::Ms);
         timeR.setup (*this, apvts, "TIME R", DelayParams::kTimeR, kCyan, Fmt::Ms);
 
@@ -376,11 +373,9 @@ public:
         modAL = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (apvts, DelayParams::kModifierL, modBoxL);
         modAR = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (apvts, DelayParams::kModifierR, modBoxR);
 
-        // ---- Feedback y Mix ----
         feedback.setup (*this, apvts, "FEEDBACK", DelayParams::kFeedback, kAmber, Fmt::Percent);
         mix     .setup (*this, apvts, "MIX",      DelayParams::kMix,      kGreen, Fmt::Percent);
 
-        // ---- Los 6 paneles contextuales: se crean ya, solo se muestran u ocultan ----
         panels = { &simplePanel, &pingPongPanel, &tapePanel, &filterPanel, &reversePanel, &granularPanel };
         for (auto* p : panels)
             addChildComponent (*p);
@@ -412,28 +407,23 @@ public:
         const float s = (float) getWidth() / (float) kDesignW;
         auto S = [s] (int v) { return juce::roundToInt ((float) v * s); };
 
-        // Cabecera
         onBtn  .setBounds (S (88),  S (4), S (56),  S (26));
         modeBox.setBounds (S (160), S (4), S (150), S (26));
         linkBtn.setBounds (S (330), S (4), S (60),  S (26));
 
-        // Tiempo L
         timeL.place (20, 44, 80, 96, s);
         syncBtnL.setBounds (S (108), S (72),  S (92), S (24));
         divBoxL .setBounds (S (108), S (102), S (92), S (24));
         modBoxL .setBounds (S (108), S (132), S (92), S (24));
 
-        // Tiempo R
         timeR.place (222, 44, 80, 96, s);
         syncBtnR.setBounds (S (310), S (72),  S (92), S (24));
         divBoxR .setBounds (S (310), S (102), S (92), S (24));
         modBoxR .setBounds (S (310), S (132), S (92), S (24));
 
-        // Feedback y Mix
         feedback.place (470, 44, 80, 96, s);
         mix     .place (560, 44, 80, 96, s);
 
-        // Panel contextual (los 6 ocupan el mismo sitio)
         for (auto* p : panels)
             p->setBounds (0, S (204), S (kDesignW), S (DelayUI::DelayPanel::kDesignH));
     }
@@ -474,11 +464,9 @@ private:
         cachedSyncL = syL;
         cachedSyncR = syR;
 
-        // Panel contextual: solo se muestra el del modo activo
         for (size_t i = 0; i < panels.size(); ++i)
             panels[i]->setVisible ((int) i == mode);
 
-        // Con SYNC el tiempo libre no aplica (y al revés); con LINK el canal R copia al L
         using DelayUI::setEnabledDimmed;
         timeL.setActive (! syL);
         setEnabledDimmed (divBoxL, syL);
@@ -500,7 +488,6 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> onA, linkA, syncAL, syncAR;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeA, divAL, divAR, modAL, modAR;
 
-    // Los 6 paneles contextuales (pre-creados)
     DelayUI::SimpleDelayPanel   simplePanel;
     DelayUI::PingPongDelayPanel pingPongPanel;
     DelayUI::TapeDelayPanel     tapePanel;

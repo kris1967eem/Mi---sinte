@@ -8,19 +8,6 @@
 // ============================================================================
 //  GranularDelay
 //  Motor granular sobre un buffer circular estereo.
-//    - Pool pre-asignado de 32 granos simultaneos. Si se llena, el grano mas avanzado se reutiliza.
-//    - Cada grano lee del buffer 'Delay Time' hacia atras (L y R con su propio tiempo), con la
-//      velocidad que marca Pitch Shift (-12 .. +12 semitonos) y una envolvente de tabla:
-//        Gaussiana cuando los granos se solapan mucho (>= 2 a la vez), Tukey (alpha 0.5) cuando
-//        hay poco solape. La envolvente se elige al nacer cada grano, asi nunca hay saltos.
-//    - Grain Size 10..500 ms, Density en granos por segundo.
-//    - Spray / Jitter (0..1): dispersa la posicion de lectura (hasta +/-50 % del tiempo), el
-//      instante de nacimiento de cada grano (hasta +/-80 %) y su panorama.
-//    - Normalizacion de nivel: con Spray 0 los granos se solapan en fase (suma coherente) y se
-//      divide por la suma de solapes; con Spray 1 se divide por su raiz cuadrada (suma incoherente).
-//      La realimentacion pasa por un limitador suave de seguridad.
-//  Un grano que sube de tono lee mas rapido que la escritura: su retardo inicial se aumenta lo
-//  necesario para que nunca alcance al cabezal de escritura.
 // ============================================================================
 class GranularDelay final : public IDelayAlgorithm
 {
@@ -112,7 +99,7 @@ public:
                 samplesToNextGrain += std::max (1.0, sampleRate / (double) density * jitter);
             }
 
-            // Suma de los granos activos
+            // Suma de los granos activos (con pitch shift para la salida)
             float accL = 0.0f, accR = 0.0f;
             for (auto& g : grains)
             {
@@ -152,8 +139,14 @@ public:
             wetL[i] = accL;
             wetR[i] = accR;
 
-            buffers[0].write (inL[i] + DelayDsp::softLimit (accL) * fb);
-            buffers[1].write (inR[i] + DelayDsp::softLimit (accR) * fb);
+            // Realimentacion sin acumulacion de pitch (evita el efecto escalera)
+            const double dSampL = std::clamp ((double) delayMs[0] * 0.001 * sampleRate, 1.0, (double) buffers[0].getMaxDelay() - 2.0);
+            const double dSampR = std::clamp ((double) delayMs[1] * 0.001 * sampleRate, 1.0, (double) buffers[1].getMaxDelay() - 2.0);
+            const float fbSigL = buffers[0].readAbsolute ((double) buffers[0].getWriteIndex() - dSampL);
+            const float fbSigR = buffers[1].readAbsolute ((double) buffers[1].getWriteIndex() - dSampR);
+
+            buffers[0].write (inL[i] + DelayDsp::softLimit (fbSigL) * fb);
+            buffers[1].write (inR[i] + DelayDsp::softLimit (fbSigR) * fb);
         }
     }
 
@@ -166,16 +159,14 @@ private:
     {
         bool active = false;
         bool gaussian = true;
-        double positionL = 0.0, positionR = 0.0;   // indices absolutos de lectura
-        double step = 1.0;                         // velocidad de lectura (1 = tono original)
-        double age = 0.0, length = 1.0;            // en muestras
+        double positionL = 0.0, positionR = 0.0;
+        double step = 1.0;
+        double age = 0.0, length = 1.0;
         double invLength = 1.0;
         float gainL = 1.0f, gainR = 1.0f;
 
-        // Sin cambio de tono (step = 1) la parte fraccionaria de la posicion no varia: los coeficientes de
-        // la interpolacion de Lagrange se calculan una sola vez al nacer el grano (lectura mucho mas barata).
         bool fixedStep = false;
-        std::int64_t baseL = 0, baseR = 0;         // indice entero de la muestra de referencia
+        std::int64_t baseL = 0, baseR = 0;
         float coefL[4] {}, coefR[4] {};
     };
 
@@ -203,7 +194,6 @@ private:
         return table[(size_t) i] + (table[(size_t) i + 1] - table[(size_t) i]) * f;
     }
 
-    // Coeficientes de Lagrange cubico para una posicion fraccionaria: puntos base-1, base, base+1, base+2
     static void setLagrangeCoefficients (double position, std::int64_t& base, float* coef) noexcept
     {
         const double floorPos = std::floor (position);
@@ -218,7 +208,6 @@ private:
 
     void spawnGrain (float sizeMs, float density, float spray) noexcept
     {
-        // Hueco libre, o si no hay, el grano mas avanzado
         Grain* slot = nullptr;
         double bestProgress = -1.0;
         for (auto& g : grains)
@@ -239,7 +228,7 @@ private:
 
         const double length = std::max (32.0, (double) sizeMs * 0.001 * sampleRate);
         const double step = (double) pitchRatio;
-        const double minDelay = 3.0 + std::max (0.0, step - 1.0) * length;   // que no alcance al cabezal de escritura
+        const double minDelay = 3.0 + std::max (0.0, step - 1.0) * length;
         const double maxDelay = (double) buffers[0].getMaxDelay() - std::max (0.0, 1.0 - step) * length - 4.0;
 
         const double rnd = (double) noise.next();
@@ -253,7 +242,6 @@ private:
 
         const double writeIndex = (double) buffers[0].getWriteIndex();
 
-        // Solape esperado y normalizacion de nivel
         const float overlap = density * sizeMs * 0.001f;
         const bool gaussian = overlap >= 2.0f;
         const float meanWindow = gaussian ? meanGauss : meanTukey;
