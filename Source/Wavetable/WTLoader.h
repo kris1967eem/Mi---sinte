@@ -1,11 +1,11 @@
 #pragma once
 
 
-include <memory>
+#include <memory>
 #include "WTData.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
-#include <memory>
+
 
 namespace wavetable
 {
