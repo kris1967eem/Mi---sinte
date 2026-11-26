@@ -407,7 +407,13 @@ public:
         if (newRate > 0.0)
         {
             adsr.setSampleRate (newRate);
-            filterAdsr.setSampleRate (newRate);
+            filterAdsr.setSampleRate (newRate);     
+            
+            if (!wtOsc)
+            {
+                wtOsc = std::make_unique<wavetable::WTOscillator>();
+            }
+            wtOsc->prepare(newRate);
         }
     }
 
