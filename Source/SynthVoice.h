@@ -965,5 +965,8 @@ private:
     double sL1 = 0.0, sL2 = 0.0, sR1 = 0.0, sR2 = 0.0;
     double g = 0.0, h = 1.0, k = 1.0;
     int coefCounter = 0;
-    int noteId = 0;
+    int noteId = 0;  
+
+    std::unique_ptr<wavetable::WTOscillator> wtOsc; 
+
 };
