@@ -71,7 +71,7 @@ MiSinteEditor::MiSinteEditor (MiSinteProcessor& p)
     oscVolSlider.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff3a3a46));
     addToPage (0, oscVolSlider);
     oscVolAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        proc.apvts, "oscvol", oscVolSlider);
+        proc.apvts, "volume", oscVolSlider);
 
     syncBtn.setButtonText ("SYNC");
     resetBtn.setButtonText ("RESET");
