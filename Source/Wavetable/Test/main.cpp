@@ -11,13 +11,12 @@
 
 int main(int argc, char* argv[])
 {
-    juce::ScopedJuceInitialiser_GUI init;
+    juce::ScopedJuceInitialiser_GUI init;   // viene de juce_gui_basics
 
     const double sampleRate = 44100.0;
     const float durationSec = 4.0f;
     const int numSamples = static_cast<int>(sampleRate * durationSec);
 
-    // Carga WAV si se pasa por argumento; si no, usa la tabla por defecto
     std::shared_ptr<wavetable::WavetableData> wt;
 
     if (argc > 1)
@@ -44,7 +43,6 @@ int main(int argc, char* argv[])
         std::cout << "Usando tabla por defecto (seno->tri->saw->square)" << std::endl;
     }
 
-    // Genera un WAV de salida con barrido de posición y Hermite en Y
     wavetable::WTOscillator osc;
     osc.prepare(sampleRate);
     osc.setWavetable(wt);
@@ -89,9 +87,12 @@ int main(int argc, char* argv[])
 
     stream.release();
 
-    writer->writeFromFloatArrays(const float* const* { outL.data(), outR.data() }, 2, numSamples);
+    const float* const* channels = new const float*[2] { outL.data(), outR.data() };
+    writer->writeFromFloatArrays(channels, 2, numSamples);
+    delete[] channels;
     writer.reset();
 
     std::cout << "WAV generado: " << outFile.getFullPathName() << std::endl;
     return 0;
 }
+
