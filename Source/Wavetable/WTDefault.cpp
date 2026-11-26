@@ -1,5 +1,5 @@
-#include "DefaultWavetable.h"
-#include "WavetableLoader.h"
+#include "WTDefault.h"
+#include "WTLoader.h"
 
 namespace wavetable
 {
