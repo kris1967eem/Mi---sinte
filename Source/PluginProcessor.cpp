@@ -43,7 +43,8 @@ MiSinteProcessor::MiSinteProcessor()
     vp.stereo     = apvts.getRawParameterValue ("ustereo");
     vp.tilt       = apvts.getRawParameterValue ("uharm");
     vp.drift      = apvts.getRawParameterValue ("drift");
-    vp.glide      = apvts.getRawParameterValue ("glide");
+    vp.glide      = apvts.getRawParameterValue ("glide");    
+    vp.oscVol     = apvts.getRawParameterValue ("oscvol");
 
     for (int i = 0; i < kNumLfos; ++i)
     {
