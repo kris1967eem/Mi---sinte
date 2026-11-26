@@ -1,4 +1,4 @@
-#include "WavetableLoader.h"
+#include "WTLoader.h"
 #include <algorithm>
 #include <cmath>
 
