@@ -99,7 +99,14 @@ struct VoiceParams
 
     // Acorde de usuario (modo CHORD): intervalos en semitonos y numero de notas
     const std::atomic<int>* chordIntervals = nullptr;
-    const std::atomic<int>* chordCount     = nullptr;
+    const std::atomic<int>* chordCount     = nullptr; 
+
+   // Wavetable Oscillator
+    std::atomic<float>* oscType       = nullptr;
+    std::atomic<float>* wtPos         = nullptr;
+    std::atomic<float>* wtWarpMode    = nullptr;
+    std::atomic<float>* wtWarpAmt     = nullptr;
+    std::atomic<float>* wtHighQuality = nullptr;
 };
 
 // Lee la onda de usuario de un LFO (tabla de un ciclo, con interpolacion)
