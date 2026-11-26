@@ -40,7 +40,10 @@ target_sources(MiSinte PRIVATE
     Source/Wavetable/WTLoader.h
     Source/Wavetable/WTLoader.cpp
     Source/Wavetable/WTDefault.h
-    Source/Wavetable/WTDefault.cpp)
+    Source/Wavetable/WTDefault.cpp
+    Source/Wavetable/WTOscillator.h
+    Source/Wavetable/WTOscillator.cpp)
+
 target_compile_definitions(MiSinte PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
@@ -53,3 +56,25 @@ target_link_libraries(MiSinte
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+
+# ============================================================================
+#  Test ejecutable de WavetableOscillator
+#  No forma parte del VST. Se compila aparte.
+# ============================================================================
+add_executable(WavetableTest
+    Source/Wavetable/Test/main.cpp
+    Source/Wavetable/WTOscillator.cpp
+    Source/Wavetable/WTLoader.cpp
+    Source/Wavetable/WTDefault.cpp)
+
+target_link_libraries(WavetableTest
+    PRIVATE
+        juce::juce_audio_formats
+        juce::juce_dsp
+        juce::juce_core
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+
+target_include_directories(WavetableTest PRIVATE
+    Source/Wavetable)
