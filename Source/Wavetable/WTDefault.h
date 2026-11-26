@@ -1,6 +1,6 @@
 #pragma once
 
-#include "WavetableData.h"
+#include "WTData.h"
 
 namespace wavetable
 {
