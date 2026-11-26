@@ -255,7 +255,12 @@ MiSinteProcessor::createLayout()
         NormalisableRange<float> (0.0f, 1.0f), 0.0f));
 
     layout.add (std::make_unique<AudioParameterBool> (
-        ParameterID { "wtHighQuality", 1 }, "WT High Quality", true));
+        ParameterID { "wtHighQuality", 1 }, "WT High Quality", true));  
+    
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "oscvol", 1 }, "Osc Volume",
+        NormalisableRange<float> (0.0f, 1.0f), 0.7f));
+    
     return layout;
 }
 
