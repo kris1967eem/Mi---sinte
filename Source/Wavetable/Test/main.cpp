@@ -11,7 +11,7 @@
 
 int main(int argc, char* argv[])
 {
-    juce::ScopedJuceInitialiser_GUI init;   // viene de juce_gui_basics
+    
 
     const double sampleRate = 44100.0;
     const float durationSec = 4.0f;
