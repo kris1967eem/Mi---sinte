@@ -35,12 +35,12 @@ target_sources(MiSinte PRIVATE
     Source/Wavetable.h
     Source/Dsp.h
     Source/EngineParams.h
-    Source/ParamIDs.h)
+    Source/ParamIDs.h
     Source/Wavetable/WTData.h
     Source/Wavetable/WTLoader.h
     Source/Wavetable/WTLoader.cpp
     Source/Wavetable/WTDefault.h
-    Source/Wavetable/WTDefault.cpp
+    Source/Wavetable/WTDefault.cpp)
 target_compile_definitions(MiSinte PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
