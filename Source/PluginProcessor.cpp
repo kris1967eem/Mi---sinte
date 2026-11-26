@@ -237,7 +237,25 @@ MiSinteProcessor::createLayout()
     }
 
     DelayParams::addDelayParameters (layout);
+    // --- Wavetable Oscillator ---
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "oscType", 1 }, "Osc Type",
+        StringArray { "VA", "WT" }, 0));
 
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "wtPos", 1 }, "WT Position",
+        NormalisableRange<float> (0.0f, 1.0f), 0.0f));
+
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "wtWarpMode", 1 }, "WT Warp Mode",
+        StringArray { "OFF", "BEND+", "BEND-", "SYNC", "SQUEEZE" }, 0));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "wtWarpAmt", 1 }, "WT Warp Amount",
+        NormalisableRange<float> (0.0f, 1.0f), 0.0f));
+
+    layout.add (std::make_unique<AudioParameterBool> (
+        ParameterID { "wtHighQuality", 1 }, "WT High Quality", true));
     return layout;
 }
 
