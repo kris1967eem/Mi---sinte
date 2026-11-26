@@ -1,5 +1,5 @@
 #pragma once
-
+include <memory>
 #include "WTData.h"
 
 namespace wavetable
