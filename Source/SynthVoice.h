@@ -2,7 +2,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
 #include <atomic>
-#include <cmath>
+#include <cmath> 
+#include "Wavetable/WTOscillator.h"
 
 // Tamano de las tablas de onda de usuario de los LFO (potencia de 2)
 constexpr int kLfoTableSize = 2048;
@@ -106,7 +107,8 @@ struct VoiceParams
     std::atomic<float>* wtPos         = nullptr;
     std::atomic<float>* wtWarpMode    = nullptr;
     std::atomic<float>* wtWarpAmt     = nullptr;
-    std::atomic<float>* wtHighQuality = nullptr;
+    std::atomic<float>* wtHighQuality = nullptr;     
+    std::shared_ptr<const wavetable::WavetableData> wavetableData = nullptr;
 };
 
 // Lee la onda de usuario de un LFO (tabla de un ciclo, con interpolacion)
