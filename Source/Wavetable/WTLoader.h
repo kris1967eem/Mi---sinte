@@ -1,6 +1,6 @@
 #pragma once
 
-#include "WavetableData.h"
+#include "WTData.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
 #include <memory>
