@@ -1,11 +1,8 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
-#include <array>
 #include <atomic>
-#include "SynthVoice.h"
-#include "FilterResponseDisplay.h"
-#include "UserChord.h"
-#include "EffectChain.h"
+#include <memory>
+#include "Wavetable/WTData.h"
 
 class MiSinteProcessor : public juce::AudioProcessor
 {
@@ -36,37 +33,19 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    bool loadLfoWave (int index, const juce::File& file);
-    juce::String getLfoWaveName (int index) const;
-
-    FilterDisplayState& getFilterDisplay() { return filterDisplay; }
-
-    UserChord& getUserChord() { return userChord; }
-    void armChordCapture()    { chordCapture.arm(); }
-    void cancelChordCapture() { chordCapture.cancel(); }
-    bool isChordCaptureArmed() const { return chordCapture.isArmed(); }
-    bool loadChordFromMidi (const juce::File& file);
-
-    EffectChain& getEffectChain() noexcept { return effectChain; }
-
     juce::AudioProcessorValueTreeState apvts;
+    
+    // NUEVO: getter para la wavetable
+    std::shared_ptr<const wavetable::WavetableData> getWavetable() const { return defaultWavetable; }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     juce::Synthesiser synth;
     float lastGain = 0.7f;
     std::atomic<float> lastNote { -1.0f };
-    std::atomic<float> hostBpm { 120.0f };
-    std::atomic<int> noteCounter { 0 };
-    FilterDisplayState filterDisplay;
-    GlobalLfoBank globalLfo;
-    EffectChain effectChain { apvts };
-    UserChord userChord;
-    ChordCapture chordCapture;
-
-    std::array<std::atomic<float>, kLfoTableSize> lfoTables[kNumLfos];
-    juce::String lfoWaveName[kNumLfos];
-    bool lfoWaveLoaded[kNumLfos] {};
+    
+    // NUEVO: almacenamos la wavetable
+    std::shared_ptr<const wavetable::WavetableData> defaultWavetable;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };
