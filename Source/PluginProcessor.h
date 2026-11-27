@@ -2,8 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
 #include <memory>
-#include <array>
-
+#include <array> 
 #include "Wavetable/WTData.h"
 #include "UserChord.h"
 #include "EffectChain.h"
