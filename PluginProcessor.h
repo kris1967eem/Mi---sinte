@@ -37,7 +37,8 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     juce::Synthesiser synth;
     float lastGain = 0.7f;
-    std::atomic<float> lastNote { -1.0f };
+    std::atomic<float> lastNote { -1.0f };     // --- Wavetable ---
+    std::shared_ptr<const wavetable::WavetableData> defaultWavetable;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MiSinteProcessor)
 };
