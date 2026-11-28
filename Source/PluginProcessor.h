@@ -2,7 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
 #include <memory>
-#include <array> 
+#include <array>
 #include "Wavetable/WTData.h"
 #include "UserChord.h"
 #include "EffectChain.h"
@@ -51,7 +51,7 @@ public:
     void armChordCapture() { chordCapture.arm(); }
     void cancelChordCapture() { chordCapture.cancel(); }
     bool loadChordFromMidi (const juce::File& f);
-    
+
     juce::String getLfoWaveName (int index) const { return lfoWaveLoaded[index] ? lfoWaveName[index] : juce::String(); }
     bool loadLfoWave (int index, const juce::File& file);
 
@@ -60,6 +60,7 @@ private:
     juce::Synthesiser synth;
     float lastGain = 0.7f;
     std::atomic<float> lastNote { -1.0f };
+    std::atomic<float> hostBpm { 120.0f };
 
     // --- Objetos del motor y la UI ---
     std::shared_ptr<const wavetable::WavetableData> defaultWavetable;
@@ -72,7 +73,7 @@ private:
 
     // --- LFOs custom (Tablas de usuario) ---
     // Usamos 8192 floats para 4 LFOs de 2048 muestras
-    std::array<std::atomic<float>, 8192> lfoTables; 
+    std::array<std::atomic<float>, 8192> lfoTables;
     std::array<juce::String, kNumLfos> lfoWaveName;
     std::array<bool, kNumLfos> lfoWaveLoaded {};
 
