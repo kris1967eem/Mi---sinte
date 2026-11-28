@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "SynthVoice.h"
 #include "Wavetable/WTDefault.h"
+#include "DelayParameters.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
 static constexpr int kNumVoices = 16;
@@ -154,10 +155,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout MiSinteProcessor::createLayo
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { "lfo" + n + "poly", 1 }, "LFO" + n + " Poly", false));
     }
     
-    // NOTA: Aquí faltarían los parámetros del Delay que uses en EffectChain.
-    // Si el EffectChain añade sus propios parámetros en otro sitio, esto compilará.
-    // Si el EffectChain necesita que los declares aquí, es posible que falten algunos de DelayParams.
-    // De momento, para que compile, dejamos los básicos.
+    // Registrar todos los parámetros que necesita el motor Delay.
+    // EffectChain/DelayEngine obtiene estos parámetros durante la construcción
+    // del procesador y los utiliza en prepareToPlay().
+    DelayParams::addDelayParameters (layout);
 
     return layout;
 }
