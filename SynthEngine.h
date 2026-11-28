@@ -16,14 +16,14 @@ class SynthEngine
 {
 public:
     static constexpr int kMaxVoices   = 16;
-    static constexpr int kMaxUnison   = 16;      // <-- CAMBIO: de 8 a 16
-    static constexpr int kControlRate = 16;
+    static constexpr int kMaxUnison   = 16;
+    static constexpr int kControlRate = 16;      // muestras entre actualizaciones de control
     static constexpr float kVoiceHeadroom = 0.3f;
 
     void prepare (double sr)
     {
         sampleRate = sr;
-        bank();
+        bank();                                   // fuerza la construccion de las wavetables
         lfo.setSampleRate (sr);
         lfo.reset();
         for (auto& v : voices)
@@ -107,6 +107,7 @@ public:
     }
 
     // ------------------------------------------------------------ Audio
+    // Escribe (sobrescribe) numSamples muestras estereo
     void render (float* outL, float* outR, int numSamples)
     {
         std::fill (outL, outL + numSamples, 0.0f);
@@ -147,7 +148,7 @@ private:
         uint32_t age = 0;
         float    velocity = 0.0f;
         float    velAmpGain = 1.0f;
-        float    pitch = 60.0f;
+        float    pitch = 60.0f;          // nota MIDI actual (con glide)
         float    targetPitch = 60.0f;
         float    glideDelta = 0.0f;
         int      glideLeft = 0;
@@ -228,7 +229,7 @@ private:
 
             if (! heldNotes.empty())
             {
-                const int top = heldNotes.back();
+                const int top = heldNotes.back();               // prioridad a la ultima nota
                 if (v.note != top)
                 {
                     const int glideSamples = (int) (params.glideMs * 0.001f * (float) sampleRate);
@@ -266,7 +267,7 @@ private:
 
         int best = -1;
         float bestLevel = 2.0f;
-        for (int i = 0; i < maxV; ++i)
+        for (int i = 0; i < maxV; ++i)                           // 1) la voz en release mas baja
         {
             const auto& v = voices[(size_t) i];
             if (v.ampEnv.isReleasing() && v.ampEnv.getValue() < bestLevel)
@@ -277,7 +278,7 @@ private:
         }
         if (best >= 0) return best;
 
-        uint32_t oldest = 0xffffffffu;
+        uint32_t oldest = 0xffffffffu;                           // 2) la mas antigua
         for (int i = 0; i < maxV; ++i)
             if (voices[(size_t) i].age < oldest) { oldest = voices[(size_t) i].age; best = i; }
         return best < 0 ? 0 : best;
@@ -365,7 +366,7 @@ private:
             }
 
             const float g = 1.0f - std::fabs (d) * (1.0f - blend);
-            const float angle = (d * spread * 0.5f + 0.5f) * (kPi * 0.5f);
+            const float angle = (d * spread * 0.5f + 0.5f) * (kPi * 0.5f);   // pan de potencia constante
             uniGL[(size_t) i] = g * std::cos (angle);
             uniGR[(size_t) i] = g * std::sin (angle);
             sumSq += g * g;
