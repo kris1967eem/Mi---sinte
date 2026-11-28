@@ -6,7 +6,8 @@ namespace wavetable
 
 void WTOscillator::prepare(double sampleRate)
 {
-    sr = sampleRate;
+    if (sampleRate > 0.0)
+        sr = sampleRate;
     phase = 0.0f;
     inc = 0.0f;
     currentMip = 0;
@@ -20,6 +21,10 @@ void WTOscillator::setWavetable(std::shared_ptr<const WavetableData> wt)
 void WTOscillator::setPosition(float pos01)
 {
     position = std::clamp(pos01, 0.0f, 1.0f);
+    const float fpos = position * static_cast<float>(WavetableData::kFrames - 1);
+    f0 = std::min(static_cast<int>(fpos), WavetableData::kFrames - 1);
+    f1 = std::min(f0 + 1, WavetableData::kFrames - 1);
+    fFrac = fpos - static_cast<float>(f0);
 }
 
 void WTOscillator::setWarpMode(int mode)
@@ -59,7 +64,8 @@ inline float WTOscillator::readSample(int frame, int mip, float phase01) const
     const float* data = wavetable->frame(frame, mip);
     constexpr int N = WavetableData::kSamples;
 
-    const float x = phase01 * static_cast<float>(N);
+    const float p = std::clamp(phase01, 0.0f, 0.9999999f);
+    const float x = p * static_cast<float>(N);
     const int i1 = static_cast<int>(x);
     const float t = x - static_cast<float>(i1);
 
@@ -71,29 +77,43 @@ inline float WTOscillator::readSample(int frame, int mip, float phase01) const
     return hermite4(data[i0], data[i1m], data[i2], data[i3], t);
 }
 
-inline float WTOscillator::readFrame(int f0, int f1, float frac, int mip, float phase01) const
+inline float WTOscillator::readFrame(int frame0, int frame1, float frac, int mip, float phase01) const
 {
-    if (f0 == f1)
-        return readSample(f0, mip, phase01);
+    if (frame0 == frame1)
+        return readSample(frame0, mip, phase01);
 
-    const float a = readSample(f0, mip, phase01);
+    const float a = readSample(frame0, mip, phase01);
 
     if (!highQuality)
     {
-        const float b = readSample(f1, mip, phase01);
+        const float b = readSample(frame1, mip, phase01);
         return a + (b - a) * frac;
     }
 
-    // Hermite en Y (necesita f0-1 y f1+1)
-    const int fm1 = std::max(0, f0 - 1);
-    const int fp1 = std::min(WavetableData::kFrames - 1, f1 + 1);
+    const int fm1 = std::max(0, frame0 - 1);
+    const int fp1 = std::min(WavetableData::kFrames - 1, frame1 + 1);
 
     const float xm1 = readSample(fm1, mip, phase01);
     const float x0 = a;
-    const float x1 = readSample(f1, mip, phase01);
+    const float x1 = readSample(frame1, mip, phase01);
     const float x2 = readSample(fp1, mip, phase01);
 
     return hermite4(xm1, x0, x1, x2, frac);
+}
+
+float WTOscillator::processSample()
+{
+    if (!wavetable)
+        return 0.0f;
+
+    const float p = warpPhase(phase, warpMode, warpAmount);
+    const float s = readFrame(f0, f1, fFrac, currentMip, p);
+
+    phase += inc;
+    if (phase >= 1.0f)
+        phase -= std::floor(phase);
+
+    return s;
 }
 
 void WTOscillator::process(float* outL, float* outR, int numSamples)
@@ -108,22 +128,11 @@ void WTOscillator::process(float* outL, float* outR, int numSamples)
         return;
     }
 
-    const float fpos = position * static_cast<float>(WavetableData::kFrames - 1);
-    const int f0 = std::min(static_cast<int>(fpos), WavetableData::kFrames - 1);
-    const int f1 = std::min(f0 + 1, WavetableData::kFrames - 1);
-    const float frac = fpos - static_cast<float>(f0);
-
     for (int i = 0; i < numSamples; ++i)
     {
-        const float p = warpPhase(phase, warpMode, warpAmount);
-        const float s = readFrame(f0, f1, frac, currentMip, p);
-
+        const float s = processSample();
         outL[i] = s;
         outR[i] = s;
-
-        phase += inc;
-        if (phase >= 1.0f)
-            phase -= std::floor(phase);
     }
 }
 
