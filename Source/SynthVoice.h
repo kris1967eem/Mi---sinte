@@ -2,7 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
 #include <atomic>
-#include <cmath> 
+#include <cmath>
 #include "Wavetable/WTOscillator.h"
 
 // Tamano de las tablas de onda de usuario de los LFO (potencia de 2)
@@ -44,7 +44,7 @@ struct VoiceParams
     std::atomic<float>* sync     = nullptr;   // hard sync on/off
     std::atomic<float>* syncFreq = nullptr;   // semitonos sobre la frecuencia base
     std::atomic<float>* reset    = nullptr;   // reinicio de fase en cada nota
-    std::atomic<float>* oscVol   = nullptr;   // volumen del oscilador VA antes del filtro
+    std::atomic<float>* oscVol   = nullptr;   // volumen del oscilador antes del filtro
 
     // Envolvente de amplitud
     std::atomic<float>* attack  = nullptr;
@@ -100,14 +100,14 @@ struct VoiceParams
 
     // Acorde de usuario (modo CHORD): intervalos en semitonos y numero de notas
     const std::atomic<int>* chordIntervals = nullptr;
-    const std::atomic<int>* chordCount     = nullptr; 
+    const std::atomic<int>* chordCount     = nullptr;
 
-   // Wavetable Oscillator
+    // Wavetable Oscillator
     std::atomic<float>* oscType       = nullptr;
     std::atomic<float>* wtPos         = nullptr;
     std::atomic<float>* wtWarpMode    = nullptr;
     std::atomic<float>* wtWarpAmt     = nullptr;
-    std::atomic<float>* wtHighQuality = nullptr;     
+    std::atomic<float>* wtHighQuality = nullptr;
     std::shared_ptr<const wavetable::WavetableData> wavetableData = nullptr;
 };
 
@@ -127,28 +127,19 @@ inline double readLfoTable (const std::atomic<float>* t, double ph)
 }
 
 // Forma de onda de un LFO (compartida por los LFOs de voz y los globales).
-// ph entre 0 y 1; hold es el valor actual del RANDOM (sample & hold).
 inline double lfoShape (int wave, double ph, double hold, const std::atomic<float>* table)
 {
     switch (wave)
     {
         case 0:  return std::sin (juce::MathConstants<double>::twoPi * ph);
-        case 1:  return ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0);   // triangulo (sube desde 0)
+        case 1:  return ph < 0.25 ? 4.0 * ph : (ph < 0.75 ? 2.0 - 4.0 * ph : 4.0 * ph - 4.0);
         case 2:  return 2.0 * ph - 1.0;
         case 3:  return ph < 0.5 ? 1.0 : -1.0;
-        case 5:  return readLfoTable (table, ph);   // onda de usuario
-        default: return hold;                        // random (sample & hold)
+        case 5:  return readLfoTable (table, ph);
+        default: return hold;
     }
 }
 
-// LFOs globales (POLY apagado). El procesador los avanza una vez por bloque de audio y guarda
-// su valor cada 16 muestras; todas las voces leen el mismo valor para la misma posicion del bloque,
-// asi todo un acorde se modula al unisono, sin desfases entre notas.
-//
-//  - Retrig: solo reinicia la fase (a PHASE) al tocar la primera nota cuando no sonaba ninguna voz.
-//  - Fade In: sigue siendo por nota (lo aplica cada voz sobre la profundidad de la modulacion).
-//  - Rate: un LFO global solo recibe modulacion de RATE de otros LFOs globales (un LFO global
-//    tiene una unica velocidad; un LFO POLY tiene un valor distinto en cada voz).
 struct GlobalLfoBank
 {
     void setParams (const VoiceParams& p) { params = p; }
@@ -168,8 +159,6 @@ struct GlobalLfoBank
         numSteps = 1;
     }
 
-    // Calcula los valores de los LFOs globales para un bloque de numSamples muestras.
-    // retrigSample: posicion de la primera nota del bloque si no sonaba ninguna voz (o -1).
     void renderBlock (int numSamples, int retrigSample)
     {
         if (numSamples <= 0)
@@ -198,7 +187,6 @@ struct GlobalLfoBank
 
         for (int s = 0; s < steps; ++s)
         {
-            // Muestras que cubre este paso (el ultimo cubre lo que quede del bloque)
             const int remaining = numSamples - s * kLfoControlRate;
             const int span = (s == steps - 1) ? remaining : juce::jmin (kLfoControlRate, remaining);
             const double dtSec = (double) span / sampleRate;
@@ -223,7 +211,7 @@ struct GlobalLfoBank
                 double hz = c.rate;
                 if (c.sync > 0)
                     hz = (bpm / 60.0) / kLfoBeats[c.sync];
-                hz *= std::exp2 (rateOct[l]);   // modulacion de Rate por otros LFOs globales
+                hz *= std::exp2 (rateOct[l]);
 
                 phase[l] += hz * dtSec;
                 if (phase[l] >= 1.0)
@@ -233,7 +221,7 @@ struct GlobalLfoBank
                 }
 
                 if (c.dest >= kLfoDestFirstRate && c.dest < kLfoDestFirstRate + kNumLfos)
-                    rateNew[c.dest - kLfoDestFirstRate] += v * c.amt * 3.0;   // +/- 3 octavas
+                    rateNew[c.dest - kLfoDestFirstRate] += v * c.amt * 3.0;
             }
 
             for (int l = 0; l < kNumLfos; ++l)
@@ -243,7 +231,6 @@ struct GlobalLfoBank
         numSteps = steps;
     }
 
-    // Valor (entre -1 y 1, sin Amount ni Fade) del LFO l en la posicion de muestra dada del bloque actual
     float getValue (int l, int samplePos) const
     {
         const int idx = juce::jlimit (0, numSteps - 1, samplePos / kLfoControlRate);
@@ -267,21 +254,6 @@ struct SynthSound : public juce::SynthesiserSound
     bool appliesToChannel (int) override { return true; }
 };
 
-// Envolvente ADSR propia (usada para AMP ENV y FILTER ENV).
-//
-// Sustituye a juce::ADSR, que tenia este fallo: setParameters() recalcula la velocidad
-// de release a partir del SUSTAIN (releaseRate = sustain / (release * sampleRate)) y
-// pisa la que noteOff() acababa de calcular desde el nivel actual. Como el motor llama a
-// setParameters() en cada bloque de audio, con Sustain = 0 la velocidad de release pasaba
-// a ser 0 y la envolvente saltaba a "idle" al instante (corte en seco). Con Sustain > 0
-// el release tampoco partia del nivel real, sino de una velocidad calculada con el sustain.
-//
-// Esta version:
-//  - En Note Off, el Release parte exactamente del nivel actual (Attack, Decay o Sustain).
-//  - Decay y Release son exponenciales y terminan al bajar del umbral de silencio (0.0001).
-//  - setParameters() solo recalcula coeficientes: nunca toca el estado ni el nivel, asi
-//    que se puede llamar en cada bloque sin cortar un Release en curso.
-//  - Un noteOn arranca el Attack desde el nivel actual (sin saltos ni clics).
 class Envelope
 {
 public:
@@ -307,7 +279,6 @@ public:
 
     void noteOff()
     {
-        // El nivel actual se conserva: el Release parte de aqui
         if (state != State::idle)
             state = State::release;
     }
@@ -337,7 +308,6 @@ public:
                 break;
 
             case State::decay:
-                // Exponencial hacia el nivel de sustain
                 level = sustain + (level - sustain) * decayCoef;
                 if (std::abs (level - sustain) <= kSilence)
                 {
@@ -347,12 +317,10 @@ public:
                 break;
 
             case State::sustain:
-                // Sigue suavemente los cambios del knob SUSTAIN (sin saltos)
                 level += (sustain - level) * sustainSmooth;
                 break;
 
             case State::release:
-                // Exponencial desde el nivel actual hasta el umbral de silencio
                 level *= releaseCoef;
                 if (level <= kSilence)
                 {
@@ -368,17 +336,15 @@ public:
 private:
     enum class State { idle, attack, decay, sustain, release };
 
-    static constexpr float kSilence = 0.0001f;   // umbral de silencio (-80 dB)
+    static constexpr float kSilence = 0.0001f;
 
     void recalculate()
     {
-        const double lnSilence = std::log ((double) kSilence);   // negativo
-
-        // Los tiempos de Decay y Release son lo que tarda la curva en llegar al silencio
+        const double lnSilence = std::log ((double) kSilence);
         attackInc     = (float) (1.0 / ((double) juce::jmax (attack, 0.0005f) * sampleRate));
         decayCoef     = (float) std::exp (lnSilence / ((double) juce::jmax (decay, 0.0005f) * sampleRate));
         releaseCoef   = (float) std::exp (lnSilence / ((double) juce::jmax (release, 0.0005f) * sampleRate));
-        sustainSmooth = (float) (1.0 - std::exp (-1.0 / (0.005 * sampleRate)));   // ~5 ms
+        sustainSmooth = (float) (1.0 - std::exp (-1.0 / (0.005 * sampleRate)));
     }
 
     State state = State::idle;
@@ -394,7 +360,11 @@ class SynthVoice : public juce::SynthesiserVoice
 public:
     static constexpr int kMaxUnison = 16;
 
-    explicit SynthVoice (const VoiceParams& p) : params (p) {}
+    explicit SynthVoice (const VoiceParams& p) : params (p)
+    {
+        for (auto& osc : wtOscs)
+            osc.setWavetable (params.wavetableData);
+    }
 
     bool canPlaySound (juce::SynthesiserSound* s) override
     {
@@ -407,13 +377,13 @@ public:
         if (newRate > 0.0)
         {
             adsr.setSampleRate (newRate);
-            filterAdsr.setSampleRate (newRate);     
-            
-            if (!wtOsc)
+            filterAdsr.setSampleRate (newRate);
+
+            for (auto& osc : wtOscs)
             {
-                wtOsc = std::make_unique<wavetable::WTOscillator>();
+                osc.prepare (newRate);
+                osc.setWavetable (params.wavetableData);
             }
-            wtOsc->prepare(newRate);
         }
     }
 
@@ -424,20 +394,19 @@ public:
         bendSemitones = wheelToSemitones (pitchWheelPos);
         level = velocity * 0.2f;
 
-        // Glide: parte de la ultima nota tocada
         const double glideTime = (double) params.glide->load();
         const double last = (double) params.lastNote->load();
         glideNote = (glideTime > 0.0005 && last >= 0.0) ? last : targetNote;
         params.lastNote->store ((float) midiNote);
         noteId = params.noteCounter->fetch_add (1, std::memory_order_relaxed) + 1;
 
-        // Fase inicial: aleatoria en unison (sonido mas grueso) o 0 si RESET esta activo
         const int n = juce::jlimit (1, kMaxUnison, (int) params.unison->load());
         const bool resetPhase = params.reset->load() > 0.5f;
         for (int u = 0; u < kMaxUnison; ++u)
         {
             phase[u] = (n > 1 && ! resetPhase) ? (double) random.nextFloat() : 0.0;
             masterPhase[u] = phase[u];
+            wtOscs[(size_t) u].resetPhase ((float) phase[u]);
             syncDelta[u] = 0.0;
             driftVal[u] = driftTarget[u] = random.nextFloat() * 2.0f - 1.0f;
             driftTimer[u] = 0;
@@ -445,9 +414,6 @@ public:
             gainL[u] = gainR[u] = 0.0f;
         }
 
-        // LFOs: con Retrig la fase empieza en el valor de Phase en cada nota.
-        // (Solo la usan los LFOs en modo POLY; los globales leen el LFO del procesador,
-        // pero el Fade In de la nota cuenta siempre desde aqui.)
         for (int l = 0; l < kNumLfos; ++l)
         {
             lfoPhase[l] = (params.lfoRetrig[l]->load() > 0.5f)
@@ -518,12 +484,30 @@ public:
         const double driftAmt = (double) params.drift->load();
         const double glideTime = (double) params.glide->load();
 
-        // Afinacion del oscilador: octava, semitono y fine (en semitonos)
+        // Wavetable: modo y controles
+        const int oscType = (params.oscType != nullptr) ? (int) params.oscType->load() : 0;
+        const bool isWavetable = (oscType == 1) && (params.wavetableData != nullptr);
+        if (isWavetable)
+        {
+            const float wtPos = (params.wtPos != nullptr) ? params.wtPos->load() : 0.0f;
+            const int wtWarpMode = (params.wtWarpMode != nullptr) ? (int) params.wtWarpMode->load() : 0;
+            const float wtWarpAmt = (params.wtWarpAmt != nullptr) ? params.wtWarpAmt->load() : 0.0f;
+            const bool wtHq = (params.wtHighQuality != nullptr) ? (params.wtHighQuality->load() > 0.5f) : true;
+
+            for (int u = 0; u < n; ++u)
+            {
+                auto& osc = wtOscs[(size_t) u];
+                osc.setPosition (wtPos);
+                osc.setWarpMode (wtWarpMode);
+                osc.setWarpAmount (wtWarpAmt);
+                osc.setHighQuality (wtHq);
+            }
+        }
+
         tuneOffset = (double) params.octave->load() * 12.0
                    + (double) params.semi->load()
                    + (double) params.fine->load() / 100.0;
 
-        // Configuracion de los LFO
         const double hostBpm = (double) params.bpm->load();
         bpm = hostBpm > 1.0 ? hostBpm : 120.0;
         for (int l = 0; l < kNumLfos; ++l)
@@ -549,7 +533,6 @@ public:
                 break;
             }
 
-            // LFOs, pitch, sync, glide, drift, panning y filtro se recalculan cada 16 muestras
             if (coefCounter-- <= 0)
             {
                 coefCounter = 15;
@@ -563,13 +546,20 @@ public:
 
                 controlUpdate (sr, n, mode, detuneCents, stereoAmt, driftAmt, glideTime, tilt);
 
+                if (isWavetable)
+                {
+                    for (int u = 0; u < n; ++u)
+                    {
+                        if (dt[u] > 0.0)
+                            wtOscs[(size_t) u].setFrequency ((float) (dt[u] * sr));
+                    }
+                }
+
                 const double mod = std::pow (2.0, amount * 7.0 * (double) fenv + lfoCut);
                 const double fc = juce::jlimit (20.0, 0.45 * sr, cutoff * mod);
                 g = std::tan (juce::MathConstants<double>::pi * fc / sr);
                 h = 1.0 / (1.0 + g * (g + k));
 
-                // Publica el cutoff y la reso efectivos para el display del filtro
-                // (solo la nota mas reciente; son escrituras atomicas, sin bloqueos)
                 if (noteId == params.noteCounter->load (std::memory_order_relaxed))
                 {
                     params.dispCutoff->store ((float) fc, std::memory_order_relaxed);
@@ -583,11 +573,15 @@ public:
             {
                 const double dtM = dt[u];
                 if (dtM <= 0.0)
-                    continue;   // parcial silenciado (por encima de la frecuencia maxima)
+                    continue;
 
                 double o;
 
-                if (! syncOn)
+                if (isWavetable)
+                {
+                    o = (double) wtOscs[(size_t) u].processSample();
+                }
+                else if (! syncOn)
                 {
                     o = (double) oscillator (waveType, (float) phase[u], (float) dtM, (float) pwNow);
                     phase[u] = frac (phase[u] + dtM);
@@ -595,17 +589,14 @@ public:
                 }
                 else
                 {
-                    // Hard sync: el oscilador maestro reinicia la fase del esclavo
                     const double dtS = juce::jmin (0.49, dtM * syncRatio);
                     const double mph = masterPhase[u];
 
                     o = (double) oscillator (waveType, (float) phase[u], (float) dtS, (float) pwNow);
 
-                    // Fase del esclavo en el instante del reinicio (si ocurre cerca de esta muestra)
                     const double toWrap = (1.0 - mph) / dtM;
                     const double slaveAtWrap = frac (phase[u] + dtS * toWrap);
 
-                    // Suaviza el salto del reinicio con PolyBLEP (antialiasing)
                     if (mph > 1.0 - dtM)
                     {
                         const double delta = (double) naiveShape (waveType, 0.0f, (float) pwNow)
@@ -635,7 +626,6 @@ public:
             }
 
             const float amp = env * level * lfoVol;
-            // VOL actua sobre la senal del oscilador antes de entrar en el filtro.
             const float outL = (float) processFilter (sumL * oscVol, filterType, sL1, sL2) * amp;
             const float outR = (float) processFilter (sumR * oscVol, filterType, sR1, sR2) * amp;
 
@@ -645,15 +635,11 @@ public:
     }
 
 private:
-    // Modos de unison: 0 NORMAL, 1 OCTAVES, 2 FIFTH, 3 MAJOR, 4 MINOR, 5 MAJOR 7,
-    //                  6 MINOR 7, 7 SUB, 8 HARMONIC, 9 CHORD (USER)
     static constexpr int kNumModes = 10;
     static constexpr int kModeSub = 7;
     static constexpr int kModeHarmonic = 8;
     static constexpr int kModeChord = 9;
 
-    // Intervalos (en semitonos) de cada voz del unison segun el modo.
-    // SUB y HARMONIC se calculan aparte.
     static constexpr int kIntervals[kNumModes][kMaxUnison] =
     {
         {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 },
@@ -668,7 +654,6 @@ private:
         {  0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0,   0,  0 }
     };
 
-    // Destinos de los LFO
     static constexpr int kDestPitch    = 1;
     static constexpr int kDestCutoff   = 2;
     static constexpr int kDestReso     = 3;
@@ -676,12 +661,10 @@ private:
     static constexpr int kDestDetune   = 5;
     static constexpr int kDestPW       = 6;
     static constexpr int kDestSyncFreq = 7;
-    static constexpr int kDestLfoRate  = kLfoDestFirstRate;   // 8..11 = LFO 1..4 RATE
+    static constexpr int kDestLfoRate  = kLfoDestFirstRate;
 
     static double frac (double x) { return x - std::floor (x); }
 
-    // Avanza los LFO y calcula su efecto sobre cada destino.
-    // samplePos: posicion de esta actualizacion dentro del bloque de audio (para leer los LFOs globales).
     void updateLfos (double sr, int samplePos)
     {
         lfoAge += 16.0 / sr;
@@ -697,11 +680,10 @@ private:
 
             if (c.poly)
             {
-                // POLY: LFO propio de esta voz
                 double hz = c.rate;
                 if (c.sync > 0)
                     hz = (bpm / 60.0) / kLfoBeats[c.sync];
-                hz *= std::exp2 (lfoRateOct[l]);   // modulacion de Rate por otros LFOs
+                hz *= std::exp2 (lfoRateOct[l]);
 
                 lfoPhase[l] += hz * 16.0 / sr;
                 if (lfoPhase[l] >= 1.0)
@@ -714,7 +696,6 @@ private:
             }
             else
             {
-                // GLOBAL: el mismo valor para todas las voces (lo calcula el procesador)
                 v = (params.globalLfo != nullptr) ? (double) params.globalLfo->getValue (l, samplePos) : 0.0;
             }
 
@@ -732,7 +713,7 @@ private:
                 case kDestSyncFreq: syncSt += v * c.amt * 36.0; break;
                 default:
                     if (c.dest >= kDestLfoRate && c.dest < kDestLfoRate + kNumLfos)
-                        rateNew[c.dest - kDestLfoRate] += v * c.amt * 3.0;   // +/- 3 octavas
+                        rateNew[c.dest - kDestLfoRate] += v * c.amt * 3.0;
                     break;
             }
         }
@@ -751,7 +732,6 @@ private:
     void controlUpdate (double sr, int n, int mode, double detuneCents,
                         double stereoAmt, double driftAmt, double glideTime, double tilt)
     {
-        // Glide (exponencial: llega al ~95% en el tiempo indicado)
         if (glideTime > 0.0005)
         {
             const double tau = glideTime / 3.0;
@@ -774,7 +754,6 @@ private:
 
         for (int u = 0; u < n; ++u)
         {
-            // Drift: deriva lenta y aleatoria de cada oscilador (hasta +/- 20 cents)
             if (driftTimer[u]-- <= 0)
             {
                 driftTarget[u] = random.nextFloat() * 2.0f - 1.0f;
@@ -782,20 +761,16 @@ private:
             }
             driftVal[u] += (driftTarget[u] - driftVal[u]) * (float) driftCoef;
 
-            // Posicion de la voz entre -1 y 1
             const double pos = (n > 1) ? 2.0 * (double) u / (double) (n - 1) - 1.0 : 0.0;
             const double cents = pos * detuneEff + (double) driftVal[u] * driftAmt * 20.0;
 
-            // Intervalo de la voz
             double interval = (double) kIntervals[mode][u];
             if (mode == kModeSub && n >= 2 && (u % 3) == 1)
-                interval = -12.0;                              // una de cada tres baja una octava
+                interval = -12.0;
             else if (harmonic)
-                interval = 12.0 * std::log2 ((double) (u + 1)); // parcial u+1 de la serie armonica
+                interval = 12.0 * std::log2 ((double) (u + 1));
             else if (mode == kModeChord)
             {
-                // Acorde de usuario: voz u = nota (u mod numero de notas) del acorde.
-                // Con mas voces que notas el acorde se repite; con menos suenan las mas graves.
                 const int cnt = juce::jlimit (1, kMaxUnison, params.chordCount->load (std::memory_order_relaxed));
                 interval = (double) params.chordIntervals[u % cnt].load (std::memory_order_relaxed);
             }
@@ -807,7 +782,6 @@ private:
 
             if (harmonic && dtRaw > 0.45)
             {
-                // Parcial por encima de la frecuencia maxima audible: se silencia
                 dt[u] = 0.0;
                 weight[u] = 0.0;
             }
@@ -821,7 +795,6 @@ private:
             panArr[u] = pos * stereoAmt;
         }
 
-        // Normalizacion: misma potencia total sea cual sea el modo
         const double norm = (sumW2 > 1.0e-9) ? 1.4142135 / std::sqrt (sumW2) : 0.0;
 
         for (int u = 0; u < n; ++u)
@@ -835,12 +808,9 @@ private:
 
     static float wheelToSemitones (int wheel)
     {
-        // Rango del pitch bend: +/- 2 semitonos
         return ((float) wheel - 8192.0f) / 8192.0f * 2.0f;
     }
 
-    // Filtro de variable de estado (TPT). Salidas: 0 paso bajo, 1 paso alto,
-    // 2 paso banda, 3 notch
     double processFilter (double x, int type, double& st1, double& st2)
     {
         const double hp = (x - (k + g) * st1 - st2) * h;
@@ -858,7 +828,6 @@ private:
         }
     }
 
-    // Correccion PolyBLEP: reduce el aliasing en sierra, cuadrada y en el reinicio del sync
     static float polyBlep (float t, float dt)
     {
         if (t < dt)
@@ -874,7 +843,6 @@ private:
         return 0.0f;
     }
 
-    // Forma de onda "cruda" (sin antialiasing), usada para calcular saltos del sync
     static float naiveShape (int type, float ph, float pw)
     {
         switch (type)
@@ -890,16 +858,16 @@ private:
     {
         switch (type)
         {
-            case 0: // Seno
+            case 0:
                 return std::sin (ph * juce::MathConstants<float>::twoPi);
 
-            case 1: // Triangulo: arranca en 0, sube a +1, baja a -1 y vuelve a 0
+            case 1:
                 return ph < 0.25f ? 4.0f * ph : (ph < 0.75f ? 2.0f - 4.0f * ph : 4.0f * ph - 4.0f);
 
-            case 2: // Sierra
+            case 2:
                 return 2.0f * ph - 1.0f - polyBlep (ph, dt);
 
-            default: // Cuadrada / pulso con ancho variable (pw entre 0.05 y 0.95)
+            default:
             {
                 float v = ph < pw ? 1.0f : -1.0f;
                 v += polyBlep (ph, dt);
@@ -907,7 +875,7 @@ private:
                 if (t2 < 0.0f)
                     t2 += 1.0f;
                 v -= polyBlep (t2, dt);
-                return v - (2.0f * pw - 1.0f);   // quita el offset de continua
+                return v - (2.0f * pw - 1.0f);
             }
         }
     }
@@ -933,14 +901,13 @@ private:
     };
 
     VoiceParams params;
-    Envelope adsr;         // AMP ENV
-    Envelope filterAdsr;   // FILTER ENV
+    Envelope adsr;
+    Envelope filterAdsr;
     juce::Random random;
 
-    // Osciladores del unison
-    double phase[kMaxUnison] {};          // fase del oscilador (esclavo si hay sync)
-    double masterPhase[kMaxUnison] {};    // fase del maestro (solo con sync)
-    double syncDelta[kMaxUnison] {};      // ultimo salto provocado por el sync
+    double phase[kMaxUnison] {};
+    double masterPhase[kMaxUnison] {};
+    double syncDelta[kMaxUnison] {};
     double dt[kMaxUnison] {};
     float gainL[kMaxUnison] {};
     float gainR[kMaxUnison] {};
@@ -948,7 +915,6 @@ private:
     float driftTarget[kMaxUnison] {};
     int driftTimer[kMaxUnison] {};
 
-    // LFOs
     LfoCfg lfo[kNumLfos];
     double lfoPhase[kNumLfos] {};
     double lfoHold[kNumLfos] {};
@@ -967,12 +933,10 @@ private:
     float bendSemitones = 0.0f;
     float level = 0.0f;
 
-    // Estado del filtro (izquierda y derecha)
     double sL1 = 0.0, sL2 = 0.0, sR1 = 0.0, sR2 = 0.0;
     double g = 0.0, h = 1.0, k = 1.0;
     int coefCounter = 0;
-    int noteId = 0;  
+    int noteId = 0;
 
-    std::unique_ptr<wavetable::WTOscillator> wtOsc; 
-
+    std::array<wavetable::WTOscillator, kMaxUnison> wtOscs;
 };
