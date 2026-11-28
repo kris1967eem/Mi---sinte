@@ -182,10 +182,10 @@ void MiSinteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
 
     // Obtener el BPM del host si está disponible
     float hostBpm = 120.0f;
-    if (auto* playHead = getPlayHead()) {
-        if (auto pos = playHead->getPosition()) {
+    if (auto* hostPlayHead = getPlayHead()) {
+        if (auto pos = hostPlayHead->getPosition()) {
             if (auto bpm = pos->getBpm()) {
-                hostBpm = *bpm;
+                hostBpm = static_cast<float> (*bpm);
                 if (auto* param = apvts.getParameter("bpm")) 
                     param->setValueNotifyingHost(param->convertTo0to1(hostBpm));
             }
@@ -225,25 +225,33 @@ void MiSinteProcessor::setStateInformation (const void* data, int size) {
 
 bool MiSinteProcessor::loadChordFromMidi (const juce::File& file)
 {
-    juce::AudioFormatManager formatManager;
-    formatManager.registerBasicFormats();
-    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
-    if (reader == nullptr) return false;
-    
-    // Lógica simplificada: leer notas y pasarlas al chord
-    juce::MidiFile midiFile;
-    if (! midiFile.readFrom (file)) return false;
+    // JUCE MidiFile lee desde un InputStream, no directamente desde juce::File.
+    juce::FileInputStream inputStream (file);
+    if (! inputStream.openedOk())
+        return false;
 
+    juce::MidiFile midiFile;
+    if (! midiFile.readFrom (inputStream))
+        return false;
+
+    // Recoger las notas MIDI sin duplicados para construir el acorde.
     juce::Array<int> notes;
-    for (int t = 0; t < midiFile.getNumTracks(); ++t) {
-        const auto* track = midiFile.getTrack(t);
-        for (int i = 0; i < track->getNumEvents(); ++i) {
-            const auto& event = track->getEvent(i);
-            if (event.message.isNoteOn()) {
-                notes.addIfNotAlreadyThere(event.message.getNoteNumber());
-            }
+    for (int trackIndex = 0; trackIndex < midiFile.getNumTracks(); ++trackIndex)
+    {
+        const auto* track = midiFile.getTrack (trackIndex);
+        if (track == nullptr)
+            continue;
+
+        for (int eventIndex = 0; eventIndex < track->getNumEvents(); ++eventIndex)
+        {
+            const auto* event = track->getEventPointer (eventIndex);
+            if (event != nullptr && event->message.isNoteOn())
+                notes.addIfNotAlreadyThere (event->message.getNoteNumber());
         }
     }
+
+    if (notes.isEmpty())
+        return false;
     
     userChord.setFromNotes(notes.getRawDataPointer(), notes.size());
     return true;
